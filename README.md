@@ -1,124 +1,220 @@
-# VectorForge
+# VectorForge — Raster artwork to editable SVG
 
-VectorForge turns sketches, logos, and flat-color icons into editable SVG paths. It is designed for local use and deliberately does not promise photo vectorization.
+VectorForge is a local, asynchronous computer-vision application that converts
+supported raster artwork into editable SVG paths. It is designed for signatures,
+sketches, logos, transparent icons, and flat-colour illustrations—not
+photographs or document reconstruction.
+
+The product promise is deliberately practical: produce a usable SVG, explain
+how it was produced, and warn you when the input or output needs review.
+
+## Who it is for
+
+- Marketing and design teams preparing reusable brand assets
+- Branding, print, signage, and e-commerce asset workflows
+- Developers who need a local raster-to-SVG REST API
+- Anyone cleaning up simple scanned marks or flat artwork
+
+## What happens to an image
+
+1. The API validates the file by content and decodes it safely (including EXIF
+   orientation), enforcing a 10 MB and 16-megapixel limit.
+2. The image is resized to at most 2048 px on its longest side and stored in a
+   UUID-scoped temporary artifact directory.
+3. The worker chooses a foreground mask using this precedence:
+   transparent alpha → optional checksum-verified TorchVision model → OpenCV
+   fallback.
+4. OpenCV denoises the mask, removes components below the configured area, and
+   either thresholds line art or quantizes flat colours.
+5. Contours and holes are found, simplified with Douglas–Peucker, optionally
+   smoothed with Catmull–Rom-to-cubic Bézier segments, and serialized as
+   escaped filled SVG paths with a correct `viewBox`.
+6. The worker writes SVG, preview, comparison, and source artifacts and stores
+   quality/model diagnostics in PostgreSQL. The browser polls until the job is
+   `completed` or `failed`.
+
+The output is filled geometry. VectorForge does not infer semantic layers,
+centerline strokes, fonts, OCR text, or a photograph's objects.
 
 ## Architecture
 
-The Docker Compose stack contains a FastAPI API, Celery worker, Redis broker, PostgreSQL metadata database, React workbench, and an ignored `data/` volume for temporary artifacts. The API accepts an image and returns a job identifier; the worker runs segmentation and vectorization before the UI downloads the SVG or comparison preview.
+```text
+React/Vite workbench → FastAPI → PostgreSQL job metadata
+                              ↘ Redis → Celery worker → OpenCV/TorchVision
+                                                        ↓
+                                      shared temporary artifact volume
+```
 
-## Run with Docker (recommended)
+Compose services are `frontend`, `api`, `worker`, `beat`, `redis`, and
+`postgres`. Generated artifacts are kept in the ignored `data` volume and are
+eligible for cleanup after 24 hours.
 
-### Prerequisites
+## Run the complete application (recommended)
 
-- Docker Desktop or Docker Engine with the Compose plugin.
-- At least 4 GB of free memory for the API, worker, database, and optional ML dependencies.
+### Requirements
 
-### Start the complete application
+- Docker Desktop or Docker Engine with the Compose plugin
+- 4 GB or more available memory
+- macOS, Linux, or Windows with a working Docker VM
+
+From the repository root:
 
 ```bash
-# From the repository root
 docker compose up --build
 ```
 
-Wait until the API and worker report that they are ready, then open:
+Open:
 
-- Workbench: `http://localhost:5173`
-- API documentation: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/healthz`
+- Workbench: <http://localhost:5173>
+- Swagger API docs: <http://localhost:8000/docs>
+- Liveness: <http://localhost:8000/healthz>
+- Readiness (database and Redis): <http://localhost:8000/readyz>
+- Metrics: <http://localhost:8000/metrics>
+
+For a background start:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs -f api worker
+```
+
+Stop containers while keeping data with `docker compose down`. To reset the
+local PostgreSQL database and generated artifacts, use `docker compose down -v`.
 
 ### Use the workbench
 
-1. Open `http://localhost:5173`.
-2. Drop or select a PNG, JPEG, or WebP image smaller than 10 MB.
-3. Use the automatic recommendation as a starting point: **Line art** is for a signature, sketch, or one-ink mark; **Illustration** is for flat artwork and multi-colour logos.
-4. Adjust color layers, smoothing, and minimum detail area if needed. When a setting is changed after a completed conversion, VectorForge clears that older result and its downloads so it cannot be mistaken for the new settings.
-5. Select **Vectorize image** after uploading or changing settings, then wait for the status timeline to complete.
-6. Download the generated SVG or comparison PNG.
+1. Select a PNG, JPEG, or WebP smaller than 10 MB.
+2. Let the local recommendation suggest **Line art** (one-ink marks,
+   signatures, sketches) or **Illustration** (flat logos, icons, and multiple
+   colours). You can override it.
+3. Tune colour layers, path smoothing, minimum component area, and optional
+   foreground segmentation.
+4. Click **Vectorize image**. The UI shows Starting, Queued, and Processing
+   states, retries temporary network/server failures, and polls the job.
+5. Inspect the original and exact SVG preview side by side. Review the quality
+   panel before using the result, then download SVG or comparison PNG.
 
-### Read the quality report
+Foreground segmentation is a background-removal mask, not a separate
+vectorizer. Leave it off for clean transparent icons and simple logos; enable
+it for noisy paper, shadows, or cluttered backgrounds. The OpenCV fallback is
+always available.
 
-Completed jobs include a **Conversion quality** panel. It shows the SVG path and
-colour-layer counts, components removed as noise, foreground coverage, SVG
-complexity, preview-similarity indicator, model/fallback used, and any warnings.
-This is an explainable output-health check—not a claim that a heuristic or
-pretrained model is perfectly accurate. A **Review recommended** or
-**Unsupported input** result means inspect the SVG before using it in production.
-See [quality-report documentation](docs/quality.md) for the exact fields.
+## Supported and unsupported inputs
 
-### Automatic recommendation
+Best results come from high-contrast artwork with clear shapes. The quality
+report detects photo-like, screenshot-like, spreadsheet/document-like,
+dense-text, blank, and corrupt inputs. Photos may be rejected or marked
+unsupported because this product is not a photo-vectorization system. A result
+marked **Review recommended** is not a guarantee of visual fidelity.
 
-The workbench performs a small, local browser-side analysis; it does not upload the image or call an LLM to choose a mode. It distinguishes meaningful artwork colour families from a dominant white background, so a sparse multi-colour logo starts in **Illustration** while a one-ink signature starts in **Line art**. You can always override the choice before vectorizing.
+See the complete fixture matrix in [samples/README.md](samples/README.md).
 
-### Try the full sample test pack
+## Optional pretrained segmentation model
 
-The repository includes supported-artwork and deliberate-failure inputs in [samples/README.md](samples/README.md). Follow its test matrix to check line art, illustration, alpha transparency, noisy backgrounds, photos/documents outside scope, blank images, corrupt files, and the upload-size limit.
-
-The default OpenCV foreground detector works immediately. Turn on **Foreground segmentation** only when you have installed the optional model below; otherwise the job completes with an explicit OpenCV fallback.
-
-### Optional PyTorch foreground model
-
-The app does not download weights automatically. To use the pinned DeepLabV3-MobileNetV3-Large checkpoint, download it once before starting Compose:
+OpenCV is the dependable default. The optional model is TorchVision
+`DeepLabV3-MobileNetV3-Large`; weights are never downloaded during inference
+and no checkpoint is committed to Git. Download the pinned, checksum-verified
+file once:
 
 ```bash
 mkdir -p models
 docker compose build api
 docker compose run --rm api python scripts/download_segmentation_model.py \
   --destination /app/models/deeplabv3_mobilenet_v3_large-fc3c493d.pth
-docker compose up --build
+docker compose up -d --build
 ```
 
-Compose mounts `./models` read-only into the worker. Do not commit checkpoint files.
+The API records provider, architecture, checkpoint, SHA-256 digest, whether
+the model was requested, and the fallback reason. See
+[docs/model.md](docs/model.md) for provenance, licensing, and later fine-tuning
+guidance. Fine-tuning requires a user-provided image/mask dataset and measured
+validation metrics; VectorForge does not train from scratch.
 
-### Stop or reset the app
+## REST API
+
+Submit a job with multipart form data:
 
 ```bash
-# Stop containers but retain generated jobs and PostgreSQL data.
-docker compose down
-
-# Stop containers and remove all local Compose data.
-docker compose down -v
+curl -X POST http://localhost:8000/api/v1/vectorizations \
+  -H 'Idempotency-Key: demo-transparent-icon-1' \
+  -F 'image=@samples/transparent-icon.png' \
+  -F 'mode=illustration' \
+  -F 'color_count=6' \
+  -F 'smoothing=0.45' \
+  -F 'min_component_area=40' \
+  -F 'use_segmentation_model=false'
 ```
 
-## Run without Docker (development)
+The API returns `202 Accepted` with a job ID. Poll
+`GET /api/v1/vectorizations/{id}` until `completed` or `failed`, then use the
+artifact URLs for `original`, `svg`, `preview`, or `comparison`. Reusing the
+same idempotency key with the same source/options returns the original job;
+using it for a different request returns `409`. Full contracts are in
+[docs/api.md](docs/api.md).
 
-Use Python 3.12 and Node.js 22 or newer. Start Redis and PostgreSQL separately, then configure `VECTORFORGE_DATABASE_URL`, `VECTORFORGE_REDIS_URL`, and `VECTORFORGE_ARTIFACT_ROOT` for your machine.
+## Quality and safety metadata
+
+Completed jobs include an explainable quality report containing score/level,
+warnings, foreground coverage, SVG path count, retained colours, removed
+components, preview similarity, SVG complexity, input classification, and
+model/fallback metadata. It is a health signal for review—not a benchmark of
+model accuracy. Empty or pathless SVGs are never presented as successful.
+
+## Local development
+
+Use Python 3.12 and Node.js 22+; run Redis and PostgreSQL separately or use
+Compose for those dependencies.
 
 ```bash
-# Terminal 1 — backend environment and API
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r backend/requirements.txt pytest ruff
+
+# API
 cd backend
 PYTHONPATH=. ../.venv/bin/python -m uvicorn app.main:app --reload --port 8000
 
-# Terminal 2 — Celery worker
+# In another terminal: worker
 cd backend
 PYTHONPATH=. ../.venv/bin/celery -A app.tasks.celery_app worker --loglevel=INFO
 
-# Terminal 3 — React workbench
+# In another terminal: frontend
 cd frontend
 npm ci
 npm run dev
 ```
 
-## Verify the installation
+## Verification and tests
 
 ```bash
-# Backend checks
 PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -q
 PYTHONPATH=backend .venv/bin/python -m ruff check backend/app backend/tests
-
-# Frontend checks
 cd frontend
 npm run lint
 npm run test
 npm run build
 ```
 
+The test suite covers decoding and limits, EXIF orientation, segmentation
+fallback/model loading, quantization, filtering, contours, Bézier serialization,
+SVG validity, quality classification, API contracts, idempotency, retry-safe
+workers, and React reducer/API behavior. Docker Compose smoke testing should
+upload a sample, wait for completion, validate the SVG, and download preview
+and comparison artifacts.
+
 ## Troubleshooting
 
-### `Cannot find module ... vite/dist/node/chunks/dist.js`
+If the UI shows a temporary error, keep `docker compose logs -f api worker`
+running while clicking **Vectorize image**. The API should return `202` and the
+worker should log a task. If there is no request log, inspect the browser
+Network tab and confirm the request is `/api/v1/vectorizations` through port
+5173. Rebuild a changed frontend with:
 
-This is a damaged or incomplete local `frontend/node_modules` install. The Docker Compose frontend does not run Vite; it serves the built application through Nginx. If you are using local development mode, restore dependencies from the lockfile and restart Vite:
+```bash
+docker compose up -d --build frontend
+```
+
+For a broken local Vite install (`Cannot find module ... vite/dist/...`):
 
 ```bash
 cd frontend
@@ -126,18 +222,27 @@ npm ci
 npm run dev
 ```
 
-Do not use `npm install` as a substitute for `npm ci` when repairing this project: `npm ci` recreates exactly the dependency tree pinned in `package-lock.json`.
+Do not commit model weights, uploaded images, credentials, or generated
+artifacts. Every material code/configuration/test/documentation change and
+every real error is recorded in [LEARNINGS.md](LEARNINGS.md).
 
-## Limitations
+## Scope and roadmap
 
-- Best results: high-contrast line art, logos, and flat illustrations.
-- Not supported: spreadsheets, screenshots of documents, photographs, or dense text. If no eligible artwork contours are found, the job fails instead of producing an empty SVG.
-- Output is editable filled SVG paths. It does not infer semantic layers or stroke centerlines.
-- A classical OpenCV mask is always available. Optional PyTorch segmentation requires an explicitly downloaded model; no weights are committed.
-- The quality report warns about photo-like, document-like, screenshot-like, or dense-text-like inputs when detectable, but it does not convert VectorForge into an OCR or photo-vectorization tool.
+Current work focuses on Phase 1 reliability: quality scoring, unsupported-input
+detection, explainable model metadata, idempotency, retry-safe jobs, fixtures,
+and clear diagnostics. The planned next phase evaluates additional compatible
+pretrained models without downloading at inference time. Batch ZIP workflows,
+webhooks, SDKs, Figma/Adobe integrations, cloud hosting, authentication,
+billing, and enterprise deployment guides are intentionally out of scope for
+now.
 
-## Development quality gates
+See [PROJECT.md](PROJECT.md), [AGENTS.md](AGENTS.md),
+[docs/architecture.md](docs/architecture.md), [docs/quality.md](docs/quality.md),
+and [docs/model.md](docs/model.md) for maintainer-level detail.
 
-Run the backend tests and static checks from `backend/`, and frontend tests/build from `frontend/`. Every material change and genuine error is summarized in [LEARNINGS.md](LEARNINGS.md).
+## License and third-party notices
 
-See [architecture documentation](docs/architecture.md), [API documentation](docs/api.md), and [model documentation](docs/model.md) for implementation details.
+This project is distributed under the repository [LICENSE](LICENSE). Review
+TorchVision's BSD-3-Clause license and the terms accompanying its pretrained
+weights before redistribution. No third-party weights are included in this
+repository.

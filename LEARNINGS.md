@@ -749,3 +749,11 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Did not invent a backend root cause. The user should run the documented Compose log/health commands to distinguish API, database, Redis, or worker failure.
 - **Verification:** Source-level checks and 25 backend tests pass; the failure remains environment/runtime-specific until the user supplies the API/worker log line.
 - **Prevention:** Keep `/healthz`, `/readyz`, and `docker compose logs api worker postgres redis --tail=100` as the first production troubleshooting checks.
+
+## E-047 — 2026-07-18 — README project guide
+- Workstream: documentation
+- Context/files: `README.md`; the previous guide covered startup but did not explain the complete processing pipeline, supported users/inputs, API lifecycle, quality metadata, troubleshooting, or current scope in one place.
+- Cause: documentation had grown across separate architecture, API, model, quality, and sample files without a single end-to-end entry point.
+- Resolution: rewrote the README to document the product purpose, architecture, raster-to-SVG stages, Docker and local development, UI behavior, segmentation, pretrained model policy, REST polling/idempotency, quality diagnostics, tests, troubleshooting, limitations, roadmap, and licensing.
+- Verification: confirmed all referenced documentation paths exist and reviewed commands against the current Compose services and scripts.
+- Prevention: update README and the relevant focused document together whenever a user-visible workflow, API contract, supported input, or deployment command changes.
