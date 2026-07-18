@@ -13,7 +13,7 @@ from app.pipeline.contours import contour_to_svg_path
 from app.pipeline.image import ImageDecodeError, decode_image
 from app.pipeline.segmentation import foreground_mask
 from app.pipeline.types import VectorizationOptions
-from app.pipeline.vectorize import vectorize_image
+from app.pipeline.vectorize import NoVectorPathsError, vectorize_image
 from app.pipeline.vectorizer import vectorize
 
 
@@ -120,3 +120,10 @@ def test_worker_facade_writes_named_artifacts(tmp_path) -> None:
     assert output.preview_path.is_file()
     assert output.comparison_path.is_file()
     assert Image.open(output.comparison_path).size == (62, 20)
+
+
+def test_worker_facade_rejects_an_empty_vector_result(tmp_path) -> None:
+    source_path = tmp_path / "blank.png"
+    source_path.write_bytes(png_bytes(Image.new("RGB", (30, 20), "white")))
+    with pytest.raises(NoVectorPathsError, match="No editable vector paths"):
+        vectorize_image(source_path, tmp_path / "artifacts", {"mode": "illustration"})

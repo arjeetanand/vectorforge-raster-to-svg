@@ -17,6 +17,10 @@ from .types import VectorizationOptions
 from .vectorizer import vectorize
 
 
+class NoVectorPathsError(ValueError):
+    """Raised when no editable SVG paths survive vectorization filtering."""
+
+
 @dataclass(frozen=True)
 class VectorizationOutput:
     """Named artifact locations produced for one isolated job directory."""
@@ -52,6 +56,13 @@ def vectorize_image(
         alpha=decoded.alpha,
         segmentation_model=selection.model,
     )
+    if result.path_count == 0:
+        # A PNG preview can still resemble the source even when foreground or
+        # component filtering left no eligible contour. Never present that as
+        # a successful vectorization with an empty downloadable SVG.
+        raise NoVectorPathsError(
+            "No editable vector paths were detected in this image."
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     svg_path = output_dir / "vector.svg"
     preview_path = output_dir / "preview.png"
