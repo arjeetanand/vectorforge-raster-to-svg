@@ -1,5 +1,6 @@
 import { useId, type ChangeEvent, type DragEvent } from 'react'
 import type { JobStatus, VectorizationOptions } from './api'
+import type { VectorizationRecommendation } from './recommendation'
 import { ArrowRightIcon, CheckIcon, DownloadIcon, ImageIcon, SlidersIcon, UploadIcon } from './icons'
 
 const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -86,6 +87,10 @@ export function Inspector({ options, disabled, onChange, onSubmit }: InspectorPr
   )
 }
 
+export function RecommendationNotice({ recommendation }: { recommendation: VectorizationRecommendation }) {
+  return <aside className="recommendation" aria-live="polite"><strong>Auto-selected {recommendation.mode === 'line-art' ? 'Line art' : 'Illustration'}</strong><span>{recommendation.message}</span><small>{recommendation.confidence === 'high' ? 'High-confidence recommendation' : 'Starting recommendation — adjust settings if needed.'}</small></aside>
+}
+
 function RangeField({ label, value, min, max, hint, disabled, onChange }: { label: string; value: number; min: number; max: number; hint: string; disabled: boolean; onChange: (value: number) => void }) {
   return <label className="range-field"><span><strong>{label}</strong><output>{value}{label === 'Path smoothing' ? '%' : ''}</output></span><input type="range" min={min} max={max} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.currentTarget.value))} /><small>{hint}</small></label>
 }
@@ -107,9 +112,11 @@ const statusSteps: { status: JobStatus; title: string; note: string }[] = [
   { status: 'completed', title: 'Ready', note: 'Editable SVG is available' },
 ]
 
-export function StatusTimeline({ status, modelUsed }: { status?: JobStatus; modelUsed?: string }) {
+export function StatusTimeline({ status, modelUsed, revectorizeRequired = false }: { status?: JobStatus; modelUsed?: string; revectorizeRequired?: boolean }) {
   const activeIndex = status ? statusSteps.findIndex((step) => step.status === status) : -1
-  return <section className="status-section" aria-live="polite" aria-atomic="true"><div className="status-heading"><div><h2>{status === 'completed' ? 'Your vector is ready' : status === 'failed' ? 'Conversion needs attention' : status ? 'Creating your vector' : 'Ready when you are'}</h2><p>{modelUsed ? `Foreground mask: ${modelUsed}` : 'Upload artwork, adjust the settings, and start a conversion.'}</p></div>{status === 'completed' ? <span className="ready-dot"><CheckIcon size={15} /> Complete</span> : null}</div>{status === 'failed' ? null : <ol className="timeline">{statusSteps.map((step, index) => <li key={step.status} className={index <= activeIndex ? 'is-active' : ''}><span>{index < activeIndex ? <CheckIcon size={14} /> : index + 1}</span><div><strong>{step.title}</strong><small>{step.note}</small></div></li>)}</ol>}</section>
+  const heading = revectorizeRequired ? 'Settings updated' : status === 'completed' ? 'Your vector is ready' : status === 'failed' ? 'Conversion needs attention' : status ? 'Creating your vector' : 'Ready when you are'
+  const detail = revectorizeRequired ? 'The previous result was cleared. Select Vectorize image to create a new SVG with these settings.' : modelUsed ? `Foreground mask: ${modelUsed}` : 'Upload artwork, adjust the settings, and start a conversion.'
+  return <section className="status-section" aria-live="polite" aria-atomic="true"><div className="status-heading"><div><h2>{heading}</h2><p>{detail}</p></div>{status === 'completed' ? <span className="ready-dot"><CheckIcon size={15} /> Complete</span> : null}</div>{status === 'failed' ? null : <ol className="timeline">{statusSteps.map((step, index) => <li key={step.status} className={index <= activeIndex ? 'is-active' : ''}><span>{index < activeIndex ? <CheckIcon size={14} /> : index + 1}</span><div><strong>{step.title}</strong><small>{step.note}</small></div></li>)}</ol>}</section>
 }
 
 export function Downloads({ svgUrl, comparisonUrl }: { svgUrl?: string; comparisonUrl?: string }) {

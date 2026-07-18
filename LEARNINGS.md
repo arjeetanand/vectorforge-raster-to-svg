@@ -271,3 +271,210 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Replaced `npm install` with lockfile-enforced `npm ci` in the frontend build stage.
 - **Verification:** The lockfile install, lint, tests, and Vite production build passed before the image change.
 - **Takeaway:** Production images should consume the committed lockfile rather than resolve floating dependency metadata.
+
+## 2026-07-18 — Change — local automatic vectorization recommendation
+
+- **Workstream:** Lead / UX and CV heuristics
+- **Files:** `frontend/src/{recommendation.ts,state.ts,state.test.ts,App.tsx,components.tsx,styles.css}`
+- **Why:** Users should not need to guess whether an upload needs Line art or Illustration settings.
+- **Resolution:** Added browser-local image statistics that recommend and automatically apply a mode, color count, smoothing, component filter, and segmentation default, with a visible explanation and manual override controls.
+- **Verification:** Added pure heuristic tests for sparse single-ink and multi-color artwork; ESLint, five frontend tests, and the production build pass.
+- **Takeaway:** Local CV heuristics are faster and more reliable for mode selection than an LLM, and avoid uploading image data solely for a recommendation.
+
+## 2026-07-18 — Error E-016 — stale local Vite process after dependency repair
+
+- **Workstream:** Lead / rendered frontend verification
+- **Context:** Browser check at `http://localhost:5173` after the local `npm ci` repair.
+- **Cause:** An already-running Vite process retained the earlier broken dependency state and continued showing the old missing-chunk overlay.
+- **Resolution:** The source dependencies and production build are healthy; restart the local Vite process or use the Docker Compose Nginx frontend to load the repaired application.
+- **Verification:** Browser DOM showed the normal workbench plus the stale Vite overlay; lint, five tests, and production build passed from the repaired source tree.
+- **Prevention:** Always stop and restart the dev server after repairing `node_modules`.
+
+## 2026-07-18 — Error E-017 — process inspection restricted
+
+- **Workstream:** Lead / rendered frontend verification
+- **Context:** Attempt to identify the stale local Vite process with `ps`.
+- **Cause:** The execution sandbox denied process-list access.
+- **Resolution:** Did not attempt to terminate or alter user processes; provided the safe manual restart procedure instead.
+- **Verification:** Restriction was reported directly by the environment.
+- **Prevention:** Treat process management as user-owned unless a supported environment interface is available.
+
+## 2026-07-18 — Change — photo-like upload warning
+
+- **Workstream:** Lead / recommendation quality
+- **Files:** `frontend/src/{recommendation.ts,state.test.ts}`
+- **Why:** A photo should not receive an unqualified Illustration recommendation because the pipeline is optimized for flat artwork.
+- **Resolution:** Added a high-color-diversity/coverage guard that retains Illustration only as a fallback and clearly warns that photo results may be noisy.
+- **Verification:** Added a photo-like recommendation unit test; frontend validation is rerun after this entry.
+- **Takeaway:** Good automatic defaults include clear scope warnings, not just a mode choice.
+
+## 2026-07-18 — Error E-018 — asynchronous recommendation could retain a prior upload
+
+- **Workstream:** Lead / frontend state correction
+- **Context:** Rapidly selecting a second image while browser-side recommendation analysis was still running.
+- **Cause:** The selected file and prior download were cleared only after the asynchronous analysis finished; an older analysis response could also update state after a newer selection.
+- **Resolution:** File selection now clears the previous job/download immediately. Recommendation results carry the exact file and object URL, and the reducer ignores responses for replaced files.
+- **Verification:** Added a reducer test for a stale first-upload recommendation arriving after the second image is selected; `npm run lint`, `npm run test` (7 tests passed), `npm run build`, and `git diff --check` all passed on 2026-07-18.
+- **Prevention:** Apply immediate user-intent state changes first, then guard deferred asynchronous results with their originating identity.
+
+## 2026-07-18 — Error E-019 — browser file-control API did not expose file selection
+
+- **Workstream:** Lead / rendered frontend verification
+- **Context:** Attempting to exercise the local upload flow through the available browser-control binding.
+- **Cause:** Its locator implementation does not provide a `setInputFiles` method.
+- **Resolution:** Did not use a browser-script workaround to alter the user file input. Verified the recommendation and result invalidation logic with reducer/unit tests, and retained browser checks for the rendered application shell.
+- **Verification:** The unavailable method reported `is not a function`; no user files or uploads were altered by the test attempt.
+- **Prevention:** Check supported locator methods before planning browser-based file-upload automation.
+
+## 2026-07-18 — Error E-020 — removed heuristic variable still referenced
+
+- **Workstream:** Lead / recommendation correction
+- **Context:** Frontend test run after replacing the broad white-background recommendation rule.
+- **Cause:** The line-art confidence expression still referenced the deleted `lowDiversity` variable.
+- **Resolution:** Replaced it with the new colour-family metric.
+- **Verification:** ESLint, all 9 frontend tests, the TypeScript/Vite production build, and `git diff --check` passed.
+- **Prevention:** Run the focused test suite immediately after simplifying heuristic inputs.
+
+## 2026-07-18 — Change — multi-colour logo recommendation and result invalidation
+
+- **Workstream:** Lead / vectorization UX and recommendation quality
+- **Files:** `frontend/src/{recommendation.ts,state.ts,state.test.ts,App.tsx,components.tsx}`
+- **Why:** A sparse red-and-blue logo on white was incorrectly classified as Line art, and changing completed-job settings could leave an old SVG visible and downloadable.
+- **Resolution:** Recommendation now counts meaningful hue families, so multi-colour logos select Illustration even when the background is mostly white. Any actual settings change clears the previous job, previews, and downloads; the UI explicitly asks the user to vectorize again with the new settings.
+- **Verification:** Added tests for sparse multi-colour logos and completed-result invalidation; ESLint, 9 tests, production build, and diff validation pass.
+- **Takeaway:** Background-dominated images require artwork-colour features, while post-completion control changes must invalidate results derived from older options.
+
+## 2026-07-18 — Error E-021 — browser screenshot API differs from workflow example
+
+- **Workstream:** Lead / rendered frontend verification
+- **Context:** Capturing required screenshot evidence after reloading the local frontend.
+- **Cause:** The browser binding exposes screenshots on the tab object, not its `playwright` helper.
+- **Resolution:** Used the supported tab screenshot method after confirming available methods.
+- **Verification:** The resulting desktop screenshot showed the VectorForge workbench; page identity was `VectorForge`, no framework overlay was present, and browser console errors/warnings were empty.
+- **Prevention:** Inspect the connected browser binding when its implementation differs from generic workflow examples.
+
+## 2026-07-18 — Error E-022 — persistent browser session rejected a duplicate declaration
+
+- **Workstream:** Lead / rendered frontend verification
+- **Context:** Retrying screenshot capture in the existing persistent browser session.
+- **Cause:** A previous failed attempt had already declared the same block-scoped variable.
+- **Resolution:** Retried with unique variable names; no application code or user data was affected.
+- **Verification:** The final screenshot and DOM/console checks completed successfully.
+- **Prevention:** Use unique names or an isolated scope for retries in persistent interactive sessions.
+
+## 2026-07-18 — Change — rendered frontend regression check
+
+- **Workstream:** Lead / rendered frontend verification
+- **Files:** Local frontend at `http://localhost:5173/`
+- **Why:** A passing build alone does not establish that the frontend still renders correctly after state-flow changes.
+- **Resolution:** Reloaded the workbench and checked page identity, meaningful content, framework-overlay absence, console health, and a desktop screenshot.
+- **Verification:** All rendered shell checks passed. File selection could not be automated because the available browser binding lacks file-input support; reducer tests cover the selection and option-change flow.
+- **Takeaway:** Keep browser evidence for rendered quality and unit tests for file-input states when the browser surface cannot safely perform a local upload.
+
+## 2026-07-18 — Error E-023 — additional QA agent thread unavailable
+
+- **Workstream:** Lead / regression-test coordination
+- **Context:** Starting three independent testers plus a lead fixer for the requested four-workstream quality pass.
+- **Cause:** The workspace agent-thread limit includes earlier completed workstreams, so creating or reactivating a third tester was rejected.
+- **Resolution:** Started two independent QA testers and assigned the lead to execute the third backend/API/vector-output audit alongside defect fixes and centralized documentation.
+- **Verification:** The two tester workstreams are active; the rejected orchestration call made no repository changes.
+- **Prevention:** Reuse capacity where available and record test-coverage ownership rather than claiming unavailable parallel work.
+
+## 2026-07-18 — Error E-024 — backend test runner unavailable in the current environment
+
+- **Workstream:** Lead / backend and vector-output QA
+- **Context:** Executing the repository backend test suite with `cd backend && pytest -q`.
+- **Cause:** `pytest` is not installed or exposed on this host environment; backend dependencies are intentionally containerized.
+- **Resolution:** Did not install or alter dependencies implicitly. Frontend validation continues locally; backend suite remains designated for the documented Docker/virtual-environment test command.
+- **Verification:** Shell reported `command not found: pytest`; no backend tests are represented as passed in this environment.
+- **Prevention:** State the required test runtime explicitly and preserve a separate CI/Docker backend test path.
+
+## 2026-07-18 — Change — recommendation and re-vectorization run-guide clarification
+
+- **Workstream:** Lead / user documentation
+- **Files:** `README.md`
+- **Why:** Users need to know why a sparse multi-colour logo selects Illustration and that control changes do not alter an already-created SVG.
+- **Resolution:** Documented local automatic recommendation, practical mode definitions, explicit post-setting-change invalidation, and the required fresh Vectorize action.
+- **Verification:** Documentation matches the reducer and workbench behavior introduced in the current regression fix.
+- **Takeaway:** Explain both automatic defaults and the boundary between configuration and a completed asynchronous job.
+
+## 2026-07-18 — Change — lead regression audit evidence
+
+- **Workstream:** Lead / frontend and vector-output QA
+- **Files/context:** Frontend test/build workflow and the user-provided illustrative SVG artifact.
+- **Why:** The lead fulfilled the backend/vector-output tester role while additional agent capacity was unavailable.
+- **Resolution:** Checked frontend lint, all 9 reducer/heuristic tests, production build, and diff whitespace. Checked that the illustrative output is XML-valid and contains six editable SVG paths with two fill colours.
+- **Verification:** `npm run lint`, `npm run test`, `npm run build`, `git diff --check`, and `xmllint --noout` passed; backend Python tests remain unrun only because E-024 documents the missing local runner.
+- **Takeaway:** Distinguish verified artifact structure from an end-to-end worker run when the required backend runtime is unavailable.
+
+## 2026-07-18 — Error E-025 — status-poll failure made Retry ineffective
+
+- **Workstream:** Frontend state QA / lead fix
+- **Context:** A vectorization job is queued or processing, then a later status-poll request fails.
+- **Cause:** The error state preserved the polling job, which correctly avoids duplicate work, but the Retry button called submission. Submission rejected the retained queued/processing job, so the UI could not recover.
+- **Resolution:** Added a dedicated poll-retry state action and counter. Retry now preserves the existing job identifier, clears the transient error, and restarts only its polling effect; upload/submission failures still retry a new submission.
+- **Verification:** Added a reducer regression test; ESLint, all 10 frontend tests, TypeScript/Vite production build, and `git diff --check` passed.
+- **Prevention:** Model retry intent explicitly when a job-creation request and a status-poll request have different safe recovery actions.
+
+## 2026-07-18 — Error E-026 — QA local-server and browser-upload limitations
+
+- **Workstream:** Independent QA reconciliation
+- **Context:** Running independent browser tests for recommendation and frontend state.
+- **Cause:** The restricted sandbox denied a direct Vite listener, pre-existing local ports required Vite to select another port, and the browser binding could not complete the local file-chooser interaction. Process inspection was also denied by the sandbox.
+- **Resolution:** QA reran the local server with permitted local-server access, performed rendered smoke checks on the selected local port, and used unit/reducer tests rather than script around file input security. No user file was submitted by automation.
+- **Verification:** Both QA workstreams reported no Vite overlay or console errors in their rendered checks; the exact file-upload journey remains explicitly unverified in this environment.
+- **Prevention:** Treat browser file upload and port restrictions as test-environment limitations, document them, and keep deterministic state tests for the same flow.
+
+## 2026-07-18 — Change — three-stream regression pass completed
+
+- **Workstream:** Recommendation QA, frontend-state QA, and lead backend/vector-output QA
+- **Files/context:** Heuristic tests, reducer state tests, rendered frontend smoke check, README, and illustrative SVG validation.
+- **Why:** Exercise different classes of stale-result, recommendation, retry, artifact, and rendered-UI regressions after the reported upload issue.
+- **Resolution:** Corrected the multi-colour recommendation, completed-result invalidation, and poll-retry recovery defects; documented current behavior and QA limitations.
+- **Verification:** Final frontend quality gate: lint passed, 10 tests passed, production build passed, and diff validation passed. Backend suite was not run locally only because E-024 documents the absent Python test runtime.
+- **Takeaway:** Automated mode selection, asynchronous state, and transient polling failures need independent regression coverage before treating a conversion result as trustworthy.
+
+## 2026-07-18 — Error E-027 — artifact-inspection command interpolation mistake
+
+- **Workstream:** Lead / user output inspection
+- **Context:** Initial local command to classify the two user-provided SVG exports.
+- **Cause:** A JavaScript template expression contained unsupported shell parameter syntax.
+- **Resolution:** Reissued a simpler read-only inspection command with explicit SVG paths.
+- **Verification:** Both exports were successfully inspected without alteration.
+- **Prevention:** Keep cross-language command interpolation simple and avoid shell syntax inside JavaScript template expressions.
+
+## 2026-07-18 — Change — paired SVG export comparison
+
+- **Workstream:** Lead / user output inspection
+- **Files/context:** Two user-provided SVG downloads generated from the same uploaded artwork.
+- **Why:** Determine whether changing the UI mode created a distinct vector result.
+- **Resolution:** Compared checksums, byte content, XML validity, path count, and fill colours without retaining user-upload content in this log.
+- **Verification:** The exports had identical SHA-256 digests and identical bytes. Each is valid SVG with nine coloured paths, demonstrating Illustration-style output rather than a Line art versus Illustration pair.
+- **Takeaway:** Identical downloads indicate the same completed result or the same submitted options; they do not demonstrate that two modes were applied.
+
+## 2026-07-18 — Error E-028 — preview artifact could disagree with downloadable SVG
+
+- **Workstream:** Lead / artifact truthfulness correction
+- **Context:** A completed-job screen visibly showed a rasterized preview, while the associated user-provided SVG contained only an SVG wrapper and no paths.
+- **Cause:** The frontend preferred `preview.png` for the vector pane, and the worker accepted a result with zero eligible contours. Quantization can resemble the source even when all candidate components are filtered out.
+- **Resolution:** The vector pane now prefers the same SVG URL exposed by Download SVG. The backend raises a dedicated no-path error before writing artifacts, and the worker records a clear unsupported/no-shape failure instead of a completed blank SVG.
+- **Verification:** Inspected the affected artifact as valid XML with zero paths; added a frontend SVG-preference regression test and a backend no-path test. Frontend lint, 11 tests, production build, backend syntax compilation using a temporary cache, and diff validation pass.
+- **Prevention:** A successful vectorization must have at least one editable path, and a user-facing SVG preview must use the download artifact itself.
+
+## 2026-07-18 — Error E-029 — default Python bytecode cache path denied by sandbox
+
+- **Workstream:** Lead / backend syntax verification
+- **Context:** Running `python3 -m compileall backend/app` after the worker pipeline change.
+- **Cause:** macOS attempted to write compiled bytecode under a protected user cache directory.
+- **Resolution:** Reran compilation with `PYTHONPYCACHEPREFIX` directed to a permitted temporary directory.
+- **Verification:** Backend source compiled successfully with the temporary cache; no project file was altered by the failed cache write.
+- **Prevention:** Direct transient Python caches to a writable task-specific temporary location in restricted environments.
+
+## 2026-07-18 — Change — document and spreadsheet limitation clarification
+
+- **Workstream:** Lead / user documentation
+- **Files:** `README.md`
+- **Why:** A spreadsheet screenshot was submitted to an artwork vectorizer and exposed the prior zero-path success defect.
+- **Resolution:** Explicitly documented that spreadsheet/document screenshots and dense text are outside the supported input class, and that no-path inputs now fail instead of exporting a blank SVG.
+- **Verification:** Matches the worker no-path behavior introduced in E-028.
+- **Takeaway:** Clear product boundaries prevent a raster preview from being mistaken for semantic document conversion.

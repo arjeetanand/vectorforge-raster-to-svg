@@ -59,7 +59,7 @@ def queue_vectorization(self, job_id: str) -> None:
         job.error_detail = None
         db.commit()
         try:
-            from app.pipeline.vectorize import vectorize_image
+            from app.pipeline.vectorize import NoVectorPathsError, vectorize_image
 
             result = vectorize_image(
                 source_path(job.artifact_dir), Path(job.artifact_dir), job.options
@@ -79,15 +79,18 @@ def queue_vectorization(self, job_id: str) -> None:
             job.model_used = model_used
             job.completed_at = datetime.now(UTC)
             db.commit()
-        except Exception:
+        except Exception as exc:
             db.rollback()
             failed = db.get(Vectorization, job_id)
             if failed:
                 failed.status = JobStatus.FAILED
-                failed.error_code = "processing_failed"
+                no_paths = isinstance(exc, NoVectorPathsError)
+                failed.error_code = "no_vector_paths" if no_paths else "processing_failed"
                 # Deliberately do not store raw exceptions, paths, or stack traces.
                 failed.error_detail = (
-                    "Vectorization could not be completed. Adjust the input or retry."
+                    "No editable shapes were detected. VectorForge works best with clear sketches, logos, and flat-colour artwork."
+                    if no_paths
+                    else "Vectorization could not be completed. Adjust the input or retry."
                 )
                 failed.completed_at = datetime.now(UTC)
                 db.commit()

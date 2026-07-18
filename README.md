@@ -30,10 +30,14 @@ Wait until the API and worker report that they are ready, then open:
 
 1. Open `http://localhost:5173`.
 2. Drop or select a PNG, JPEG, or WebP image smaller than 10 MB.
-3. Choose **Line art** for sketches/logos or **Illustration** for flat-color images.
-4. Adjust color layers, smoothing, and minimum detail area if needed.
-5. Select **Vectorize image** and wait for the status timeline to complete.
+3. Use the automatic recommendation as a starting point: **Line art** is for a signature, sketch, or one-ink mark; **Illustration** is for flat artwork and multi-colour logos.
+4. Adjust color layers, smoothing, and minimum detail area if needed. When a setting is changed after a completed conversion, VectorForge clears that older result and its downloads so it cannot be mistaken for the new settings.
+5. Select **Vectorize image** after uploading or changing settings, then wait for the status timeline to complete.
 6. Download the generated SVG or comparison PNG.
+
+### Automatic recommendation
+
+The workbench performs a small, local browser-side analysis; it does not upload the image or call an LLM to choose a mode. It distinguishes meaningful artwork colour families from a dominant white background, so a sparse multi-colour logo starts in **Illustration** while a one-ink signature starts in **Line art**. You can always override the choice before vectorizing.
 
 The default OpenCV foreground detector works immediately. Turn on **Foreground segmentation** only when you have installed the optional model below; otherwise the job completes with an explicit OpenCV fallback.
 
@@ -113,6 +117,7 @@ Do not use `npm install` as a substitute for `npm ci` when repairing this projec
 ## Limitations
 
 - Best results: high-contrast line art, logos, and flat illustrations.
+- Not supported: spreadsheets, screenshots of documents, photographs, or dense text. If no eligible artwork contours are found, the job fails instead of producing an empty SVG.
 - Output is editable filled SVG paths. It does not infer semantic layers or stroke centerlines.
 - A classical OpenCV mask is always available. Optional PyTorch segmentation requires an explicitly downloaded model; no weights are committed.
 

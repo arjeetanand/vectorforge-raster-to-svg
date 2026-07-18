@@ -27,6 +27,11 @@ export interface VectorizationJob {
   error?: string
 }
 
+/** Prefer the editable SVG so the workbench shows the exact download artifact. */
+export function vectorPreviewUrl(job?: VectorizationJob | null): string | undefined {
+  return job?.artifacts.svgUrl ?? job?.artifacts.previewUrl
+}
+
 interface ApiJob {
   id: string
   status: JobStatus
