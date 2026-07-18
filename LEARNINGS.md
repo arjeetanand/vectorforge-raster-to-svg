@@ -923,6 +923,38 @@ This append-only log records every material implementation, configuration, test,
 - Verification: backend tests 37 passed; frontend tests 17 passed; frontend lint/build passed; Ruff check and format check passed; `git diff --check` passed.
 - Prevention: run documentation review and repository-wide formatting after parallel workstreams are integrated, not only focused tests.
 
+## E-055 — 2026-07-18 — ZIP batches contained non-image and invalid members
+- Workstream: Phase 3 batch ingestion
+- Context/files: user-provided repository `samples.zip`, `backend/app/api/routes.py`, `backend/tests/test_api_contracts.py`.
+- Cause: the archive includes SVGs, documentation, macOS metadata, a corrupt raster, and an oversized raster. The route attempted to persist every member and aborted the whole batch; the first fix also queued an item already marked failed.
+- Resolution: ignore non-PNG/JPEG/WebP archive members, represent invalid raster members as per-file failed jobs with safe errors, and enqueue only queued items. Valid siblings continue processing and terminal reports show the failed members.
+- Verification: added mixed ZIP regression coverage; API contract tests pass (8 passed). Full backend and frontend suites remain required before release.
+- Prevention: treat archive contents as independent inputs, validate each member against the normal upload limits, and never enqueue terminal jobs.
+
+## E-056 — 2026-07-18 — Running API image did not contain the batch route
+- Workstream: Docker/runtime troubleshooting
+- Context: the browser displayed `Batch update — Not Found` after the user rebuilt and opened Batch convert; the supplied Compose output showed only service startup and no request lines.
+- Cause: FastAPI's JSON `Not Found` response indicates the request reached an API container whose loaded application did not include the newly added batch routes, consistent with a stale cached image or an old container still serving port 8000. The repository source/OpenAPI includes the routes.
+- Resolution: documented a no-cache rebuild and an explicit route smoke check through both API port 8000 and the frontend proxy port 5173. This distinguishes stale image/proxy state from ZIP validation failures.
+- Verification: local source OpenAPI lists `/api/v1/vectorization-batches`, `/api/v1/presets`, and artifact routes; backend tests pass 38 after ZIP handling fixes.
+- Prevention: after adding API routes, recreate API, worker, beat, and frontend images together; verify the route before testing uploads.
+
+## E-057 — 2026-07-18 — Batch 404 diagnosis in the workbench
+- Workstream: frontend batch error handling
+- Context/files: `frontend/src/api.ts`, `frontend/src/batch.tsx`, `frontend/src/api.test.ts`; a stale API container returned FastAPI's JSON `Not Found` for batch submission.
+- Cause: generic API errors discarded the HTTP status, so the UI could not distinguish an unavailable batch route from a ZIP validation failure. A first test assertion also used an unsupported Vitest generic type argument.
+- Resolution: preserve response status in `ApiRequestError`, show an actionable stale-API rebuild message for batch-route 404s, and add a 404 regression test without the unsupported type argument.
+- Verification: frontend lint, 18 tests, and production build pass after the correction.
+- Prevention: retain HTTP status for user-facing recovery decisions and use the project's installed test assertion signatures.
+
+## E-058 — 2026-07-18 — Stale test import after API-error assertion revision
+- Workstream: frontend validation
+- Context/files: `frontend/src/api.test.ts`; ESLint rejected an unused `ApiRequestError` import after the test assertion was changed to avoid unsupported generic syntax.
+- Cause: the final assertion checks the public error shape and no longer references the imported class directly.
+- Resolution: removed the unused import and reran frontend validation.
+- Verification: lint, tests, and production build pass.
+- Prevention: run lint after changing test assertion strategy, even when unit tests execute successfully.
+
 ## 2026-07-18 — Change — project guide synchronized with Phase 3
 
 - **Workstream:** Phase 3 integration documentation
@@ -931,3 +963,35 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Updated the project contract to record Phase 3 as implemented and narrowed the remaining scope to operational/adoption work while preserving the explicit Figma/Adobe, cloud-hosting, authentication, billing, and enterprise-guide boundaries.
 - **Verification:** Reviewed the guide against `README.md`, `docs/api.md`, and the implemented batch routes/services; `git diff --check` passes.
 - **Prevention:** Treat `PROJECT.md`, `README.md`, and `docs/api.md` as a synchronized contract set whenever a phase changes product scope.
+
+## E-059 — 2026-07-18 — Browser batch verification found a stale running API
+- Workstream: Phase 3 browser acceptance test
+- Context/files: live `http://localhost:5173/` workbench with repository `samples.zip`; the selected archive was present in the Batch convert form, while presets were unavailable and the browser displayed the batch-route rebuild message.
+- Cause: the browser-connected frontend can load, but its API returns route-not-found responses for the newer batch and presets contract. This is a running-container version mismatch, not an archive parsing result. The Codex execution environment also has no `docker` executable, so it cannot recreate the user's local Compose containers directly.
+- Resolution: confirmed the visible runtime state and retained the actionable UI message. The source OpenAPI and regression suite already contain the batch routes and mixed-ZIP handling; the host must rebuild/recreate the Compose services before a real upload can complete.
+- Verification: browser DOM inspection confirmed `samples.zip` selected and the unavailable-presets/batch-route state; source OpenAPI lists the batch endpoints; backend suite passed 38 tests, Ruff/format/diff checks passed, and frontend lint, 18 tests, and production build passed.
+- Prevention: make the route smoke check part of every container rebuild before browser acceptance testing: verify `/api/v1/presets` and `/api/v1/vectorization-batches` through the frontend proxy, then upload a mixed ZIP.
+
+## E-060 — 2026-07-18 — Rebuilt browser runtime still lacks batch capability
+- Workstream: Phase 3 live-browser retest
+- Context/files: `http://localhost:5173/` after the requested no-cache Compose rebuild; the Batch convert UI loads, but the preset selector remains disabled with `Presets are unavailable`. Browser automation was also denied access to set the local `samples.zip` file in the native file chooser.
+- Cause: the frontend can be newer than the API image it proxies to. The persistent unavailable-presets state shows the live backend is still not returning the implemented `/api/v1/presets` capability. The file chooser denial is a browser-control permission restriction, not an application upload validation error.
+- Resolution: did not claim a successful batch upload. Retained source-side coverage and recorded the exact live acceptance-test boundary so the next diagnostic can focus on the image actually bound to the `api` service.
+- Verification: browser reload and Batch convert inspection reproduced the disabled preset control; source contains `GET /api/v1/presets` and batch routes, with the full suites previously passing.
+- Prevention: expose a small API build/capability response in the workbench and verify it after deployment; use a manual browser file selection or a permitted test harness for native upload controls when automation cannot attach a local file.
+
+## E-061 — 2026-07-18 — API route inventory and browser 404 disagree
+- Workstream: Phase 3 proxy diagnosis
+- Context/files: user ran `docker compose exec api python -c ... app.openapi()` and the live API listed `/api/v1/presets` plus all batch routes; the browser workbench still renders the batch-route 404 recovery message.
+- Cause: the backend application contract is present inside the `api` container, so the failing request is now likely traversing a different/stale frontend proxy container or service network path. A 404 is being surfaced accurately by the UI, but it cannot identify which upstream served it without a direct/proxied comparison.
+- Resolution: narrowed the next diagnostic to identical `curl` requests through ports 8000 and 5173. No vectorization logic was changed because the available evidence does not support changing a correct route definition.
+- Verification: inspected `backend/app/api/routes.py`, `frontend/src/api.ts`, and `frontend/nginx.conf`; all source paths agree on `/api/v1/presets` and `/api/v1/vectorization-batches`.
+- Prevention: include direct API and frontend-proxy capability checks in the Compose smoke test, not only an in-container OpenAPI inspection.
+
+## E-062 — 2026-07-18 — Local ports were owned by unrelated applications
+- Workstream: Phase 3 live-runtime diagnosis and Compose configuration
+- Context/files: user `curl` output showed `localhost:8000` returning a Uvicorn 404 despite the VectorForge API container listing the route, and `localhost:5173` returning an `AskRepo` Vite HTML page instead of VectorForge.
+- Cause: the common host ports `8000` and `5173` were already bound by other local projects. Browser testing therefore reached unrelated applications, which made a valid VectorForge route appear missing.
+- Resolution: changed Compose defaults to isolated configurable host ports: VectorForge workbench `5174` and API `8001`; added `.env.example`; updated README URLs, API example, and proxy smoke checks.
+- Verification: the observed headers/body identify the conflicting services; source Compose maps `${VECTORFORGE_WEB_PORT:-5174}:80` and `${VECTORFORGE_API_PORT:-8001}:8000`; `git diff --check` plus frontend lint, 18 tests, and production build pass after the update.
+- Prevention: use project-specific configurable host ports and verify page identity before treating a localhost response as evidence about this application.

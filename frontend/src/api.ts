@@ -127,6 +127,13 @@ interface ApiJob {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
 function apiPath(path: string): string {
   return `${API_BASE.replace(/\/$/, '')}${path}`
 }
@@ -235,6 +242,10 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
+async function requestError(response: Response): Promise<ApiRequestError> {
+  return new ApiRequestError(await parseError(response), response.status)
+}
+
 export async function createVectorization(file: File, options: VectorizationOptions, idempotencyKey: string, signal?: AbortSignal): Promise<VectorizationJob> {
   const body = new FormData()
   body.append('image', file)
@@ -249,13 +260,13 @@ export async function createVectorization(file: File, options: VectorizationOpti
     signal,
     headers: { 'Idempotency-Key': idempotencyKey },
   })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   return mapJob((await response.json()) as ApiJob)
 }
 
 export async function getVectorization(id: string, signal?: AbortSignal): Promise<VectorizationJob> {
   const response = await fetch(apiPath(`/vectorizations/${encodeURIComponent(id)}`), { signal })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   return mapJob((await response.json()) as ApiJob)
 }
 
@@ -280,13 +291,13 @@ export async function createVectorizationBatch(
     signal,
     headers: { 'Idempotency-Key': idempotencyKey },
   })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   return mapBatch((await response.json()) as ApiBatch)
 }
 
 export async function getVectorizationBatch(id: string, signal?: AbortSignal): Promise<VectorizationBatch> {
   const response = await fetch(apiPath(`/vectorization-batches/${encodeURIComponent(id)}`), { signal })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   return mapBatch((await response.json()) as ApiBatch)
 }
 
@@ -295,13 +306,13 @@ export async function retryFailedBatch(id: string, signal?: AbortSignal): Promis
     method: 'POST',
     signal,
   })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   return mapBatch((await response.json()) as ApiBatch)
 }
 
 export async function getVectorizationPresets(signal?: AbortSignal): Promise<VectorizationPreset[]> {
   const response = await fetch(apiPath('/presets'), { signal })
-  if (!response.ok) throw new Error(await parseError(response))
+  if (!response.ok) throw await requestError(response)
   const presets = (await response.json()) as ApiPreset[]
   return presets.map((preset) => ({
     id: preset.id,

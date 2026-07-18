@@ -23,7 +23,10 @@ interpretation.
 
 Batch uploads are limited to 100 files or a 50 MB ZIP. Each contained image is
 still subject to the normal 10 MB, decode, and pixel limits. Archive paths are
-sanitized and never extracted outside UUID-scoped artifact directories.
+sanitized and never extracted outside UUID-scoped artifact directories. ZIP
+members that are not PNG/JPEG/WebP (for example SVGs or README files) are
+ignored. Invalid or oversized raster members become failed per-file jobs while
+valid siblings continue processing.
 
 When `quality.model_metadata` is present, `model_id` and `version` identify the
 reviewed registry entry, while `checkpoint_sha256` identifies the exact local

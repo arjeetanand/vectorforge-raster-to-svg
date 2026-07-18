@@ -95,4 +95,15 @@ describe('createVectorization', () => {
       options: { mode: 'illustration', colorCount: 6, smoothing: 25, minimumComponentArea: 24, useSegmentation: false },
     }])
   })
+
+  it('preserves a 404 status for a stale batch API image', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: 'Not Found' }), { status: 404 })))
+
+    await expect(createVectorizationBatch(
+      [new File(['image'], 'logo.png', { type: 'image/png' })],
+      null,
+      options,
+      'missing-batch-api',
+    )).rejects.toMatchObject({ name: 'ApiRequestError', status: 404 })
+  })
 })
