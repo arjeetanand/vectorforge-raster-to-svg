@@ -271,3 +271,47 @@ def test_batch_zip_rejects_unsafe_paths(api_client):
     )
     assert response.status_code == 422
     assert "safe ZIP" in response.json()["detail"]
+
+
+def test_batch_zip_ignores_non_images_and_keeps_invalid_image_as_failed_item(
+    api_client, monkeypatch
+):
+    client, queued_job_ids, artifact_root = api_client
+
+    def persist_bytes(raw, filename, job_id, settings=None):
+        if raw == b"corrupt":
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail="Upload must be a valid image.")
+        path = artifact_root / job_id
+        path.mkdir()
+        (path / "source.png").write_bytes(raw)
+        return {
+            "artifact_dir": str(path),
+            "filename": filename,
+            "mime_type": "image/png",
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "width": 4,
+            "height": 4,
+        }
+
+    monkeypatch.setattr(routes, "persist_upload_bytes", persist_bytes)
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as bundle:
+        bundle.writestr("samples/README.md", b"documentation")
+        bundle.writestr("samples/reference.svg", b"<svg />")
+        bundle.writestr("samples/good.png", b"valid")
+        bundle.writestr("samples/corrupt.jpg", b"corrupt")
+
+    response = client.post(
+        "/api/v1/vectorization-batches",
+        files={"archive": ("samples.zip", stream.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["total_count"] == 2
+    assert body["completed_count"] == 0
+    assert body["failed_count"] == 1
+    assert len(queued_job_ids) == 1
+    assert [item["status"] for item in body["items"]] == ["queued", "failed"]

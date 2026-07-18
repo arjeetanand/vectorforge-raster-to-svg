@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {
+  ApiRequestError,
   createVectorizationBatch,
   getVectorizationBatch,
   getVectorizationPresets,
@@ -26,6 +27,13 @@ function isBatchActive(batch?: VectorizationBatch | null): boolean {
 
 function isTransient(error: unknown): boolean {
   return /5\d\d|failed to fetch|network/i.test(error instanceof Error ? error.message : String(error))
+}
+
+function batchErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError && error.status === 404) {
+    return 'The running API service does not include batch conversion. Rebuild and recreate the api, worker, beat, and frontend containers, then refresh this page.'
+  }
+  return error instanceof Error ? error.message : 'The batch could not be submitted.'
 }
 
 function formatBytes(bytes: number): string {
@@ -145,7 +153,7 @@ export function BatchWorkbench({ onReset }: BatchWorkbenchProps) {
       } catch (reason) {
         if (!isTransient(reason) || attempt === RETRY_DELAYS_MS.length) {
           setSubmitting(false)
-          setError(reason instanceof Error ? reason.message : 'The batch could not be submitted.')
+          setError(batchErrorMessage(reason))
           return
         }
         await new Promise((resolve) => window.setTimeout(resolve, RETRY_DELAYS_MS[attempt]))

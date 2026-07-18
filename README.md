@@ -65,11 +65,16 @@ docker compose up --build
 
 Open:
 
-- Workbench: <http://localhost:5173>
-- Swagger API docs: <http://localhost:8000/docs>
-- Liveness: <http://localhost:8000/healthz>
-- Readiness (database and Redis): <http://localhost:8000/readyz>
-- Metrics: <http://localhost:8000/metrics>
+- Workbench: <http://localhost:5174>
+- Swagger API docs: <http://localhost:8001/docs>
+- Liveness: <http://localhost:8001/healthz>
+- Readiness (database and Redis): <http://localhost:8001/readyz>
+- Metrics: <http://localhost:8001/metrics>
+
+VectorForge deliberately uses `5174` and `8001` by default so it does not
+silently collide with the common Vite (`5173`) and FastAPI (`8000`) ports used
+by other local projects. Copy `.env.example` to `.env` and change
+`VECTORFORGE_WEB_PORT` or `VECTORFORGE_API_PORT` when needed.
 
 For a background start:
 
@@ -141,7 +146,7 @@ are required for a real segmentation evaluation.
 Submit a job with multipart form data:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/vectorizations \
+curl -X POST http://localhost:8001/api/v1/vectorizations \
   -H 'Idempotency-Key: demo-transparent-icon-1' \
   -F 'image=@samples/transparent-icon.png' \
   -F 'mode=illustration' \
@@ -213,11 +218,27 @@ If the UI shows a temporary error, keep `docker compose logs -f api worker`
 running while clicking **Vectorize image**. The API should return `202` and the
 worker should log a task. If there is no request log, inspect the browser
 Network tab and confirm the request is `/api/v1/vectorizations` through port
-5173. Rebuild a changed frontend with:
+5174. Rebuild a changed frontend with:
 
 ```bash
 docker compose up -d --build frontend
 ```
+
+After adding or changing API routes, force-refresh all application images and
+verify the batch route before uploading a ZIP:
+
+```bash
+docker compose build --no-cache api worker beat frontend
+docker compose up -d api worker beat frontend
+curl -i http://localhost:8001/api/v1/presets
+curl -i http://localhost:5174/api/v1/presets
+```
+
+Both route checks should return `200`. A FastAPI JSON `Not Found` response for
+`/api/v1/vectorization-batches` means an old API image is still serving port
+8001, not that the ZIP itself is invalid. If either command responds with HTML
+from an unrelated application, the requested host port is owned by another
+project; use the VectorForge ports above or override them in `.env`.
 
 If `evaluate_segmentation.py` reports `ModuleNotFoundError: numpy`, do not use
 the macOS system `pip3` with the project `python`. They may point to different
@@ -265,7 +286,9 @@ CSV report, and JSON report.
 The batch API preserves idempotency using a content/options fingerprint, rejects
 unsafe ZIP paths, keeps the existing single-image endpoint unchanged, and uses
 the same Celery/OpenCV/TorchVision pipeline for every file. Presets are plain
-validated options, not separate algorithms.
+validated options, not separate algorithms. ZIPs may contain other repository
+files; non-raster members are ignored, while corrupt or oversized raster
+members appear as failed files instead of cancelling valid conversions.
 
 See [batch API documentation](docs/api.md) and the reusable implementation in
 `backend/app/services/{presets,batch_artifacts}.py`.

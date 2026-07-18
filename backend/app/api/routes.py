@@ -5,6 +5,7 @@ import uuid
 import hashlib
 import io
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from celery.exceptions import OperationalError
@@ -41,6 +42,8 @@ from app.tasks import queue_vectorization
 
 router = APIRouter(prefix="/api/v1")
 system_router = APIRouter()
+
+_BATCH_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 
 
 def _urls(request: Request, job: Vectorization) -> ArtifactUrls:
@@ -302,6 +305,11 @@ async def create_vectorization_batch(
                     safe_name = info.filename.replace("\\", "/")
                     if safe_name.startswith("/") or ".." in safe_name.split("/"):
                         raise ValueError("archive contains an unsafe path")
+                    # ZIPs commonly contain SVG references, README files, and
+                    # Finder metadata. They are not conversion inputs; ignore
+                    # them instead of failing the entire batch.
+                    if Path(safe_name).suffix.lower() not in _BATCH_IMAGE_SUFFIXES:
+                        continue
                     entries.append((safe_name, bundle.read(info)))
         except (zipfile.BadZipFile, OSError, ValueError) as exc:
             raise HTTPException(
@@ -313,7 +321,8 @@ async def create_vectorization_batch(
         ]
     if not entries:
         raise HTTPException(
-            status_code=422, detail="Add at least one image or ZIP archive."
+            status_code=422,
+            detail="The batch contains no supported PNG, JPEG, or WebP images.",
         )
     if len(entries) > 100:
         raise HTTPException(
@@ -349,23 +358,46 @@ async def create_vectorization_batch(
     try:
         for index, (name, raw) in enumerate(entries):
             job_id = str(uuid.uuid4())
-            stored = persist_upload_bytes(raw, name, job_id)
-            staged.append(stored["artifact_dir"])
-            db.add(
-                Vectorization(
-                    id=job_id,
-                    status=JobStatus.QUEUED,
-                    source_filename=stored["filename"],
-                    source_mime_type=stored["mime_type"],
-                    source_sha256=stored["sha256"],
-                    options=options.model_dump(),
-                    artifact_dir=stored["artifact_dir"],
-                    source_width=stored["width"],
-                    source_height=stored["height"],
-                    batch_id=batch.id,
-                    batch_index=index,
+            try:
+                stored = persist_upload_bytes(raw, name, job_id)
+                staged.append(stored["artifact_dir"])
+                db.add(
+                    Vectorization(
+                        id=job_id,
+                        status=JobStatus.QUEUED,
+                        source_filename=stored["filename"],
+                        source_mime_type=stored["mime_type"],
+                        source_sha256=stored["sha256"],
+                        options=options.model_dump(),
+                        artifact_dir=stored["artifact_dir"],
+                        source_width=stored["width"],
+                        source_height=stored["height"],
+                        batch_id=batch.id,
+                        batch_index=index,
+                    )
                 )
-            )
+            except HTTPException as exc:
+                # A bad member should be visible as one failed item while
+                # valid siblings continue through Celery. Do not store the
+                # invalid bytes or raw exception details.
+                db.add(
+                    Vectorization(
+                        id=job_id,
+                        status=JobStatus.FAILED,
+                        source_filename=Path(name).name[:255],
+                        source_mime_type="application/octet-stream",
+                        source_sha256=hashlib.sha256(raw).hexdigest(),
+                        options=options.model_dump(),
+                        artifact_dir=str(get_settings().artifact_root / job_id),
+                        source_width=0,
+                        source_height=0,
+                        error_code="invalid_batch_item",
+                        error_detail=str(exc.detail),
+                        completed_at=datetime.now(UTC),
+                        batch_id=batch.id,
+                        batch_index=index,
+                    )
+                )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -400,7 +432,8 @@ async def create_vectorization_batch(
     )
     try:
         for item in items:
-            queue_vectorization.delay(item.id)
+            if item.status == JobStatus.QUEUED:
+                queue_vectorization.delay(item.id)
     except OperationalError as exc:
         # Jobs remain durable and can be retried after Redis recovers.
         raise HTTPException(
