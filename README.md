@@ -39,6 +39,10 @@ Wait until the API and worker report that they are ready, then open:
 
 The workbench performs a small, local browser-side analysis; it does not upload the image or call an LLM to choose a mode. It distinguishes meaningful artwork colour families from a dominant white background, so a sparse multi-colour logo starts in **Illustration** while a one-ink signature starts in **Line art**. You can always override the choice before vectorizing.
 
+### Try the full sample test pack
+
+The repository includes supported-artwork and deliberate-failure inputs in [samples/README.md](samples/README.md). Follow its test matrix to check line art, illustration, alpha transparency, noisy backgrounds, photos/documents outside scope, blank images, corrupt files, and the upload-size limit.
+
 The default OpenCV foreground detector works immediately. Turn on **Foreground segmentation** only when you have installed the optional model below; otherwise the job completes with an explicit OpenCV fallback.
 
 ### Optional PyTorch foreground model

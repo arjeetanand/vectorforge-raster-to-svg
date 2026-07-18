@@ -15,3 +15,4 @@ data/
 models/*.pth
 models/*.pt
 *.log
+samples/

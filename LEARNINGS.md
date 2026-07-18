@@ -478,3 +478,57 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Explicitly documented that spreadsheet/document screenshots and dense text are outside the supported input class, and that no-path inputs now fail instead of exporting a blank SVG.
 - **Verification:** Matches the worker no-path behavior introduced in E-028.
 - **Takeaway:** Clear product boundaries prevent a raster preview from being mistaken for semantic document conversion.
+
+## 2026-07-18 — Error E-030 — public sample download initially blocked by DNS sandboxing
+
+- **Workstream:** Lead / sample test pack
+- **Context:** Downloading public OpenCV sample images for local manual testing.
+- **Cause:** The restricted execution sandbox could not resolve the public source host.
+- **Resolution:** Repeated the exact public download with approved network access and saved only the selected test assets under `samples/`.
+- **Verification:** Three raster assets downloaded successfully and were identified as valid JPEG/PNG files.
+- **Prevention:** Use explicit, attributable public sources and request network approval when the sandbox blocks fixture retrieval.
+
+## 2026-07-18 — Error E-031 — macOS `sips` could not rasterize SVG fixtures
+
+- **Workstream:** Lead / sample test pack
+- **Context:** Converting project-created SVG fixture artwork to PNG upload samples.
+- **Cause:** The installed `sips` build could not extract SVG image data.
+- **Resolution:** Used the local macOS Quick Look thumbnail renderer instead, then copied its valid PNG outputs into the sample folder.
+- **Verification:** All generated PNG files identify as valid PNG images; the flat-logo fixture was visually inspected.
+- **Prevention:** Do not assume every system image utility supports SVG rasterization; validate generated upload files by type and visual inspection.
+
+## 2026-07-18 — Error E-032 — Quick Look thumbnail command required unsandboxed local execution
+
+- **Workstream:** Lead / sample test pack
+- **Context:** First local thumbnail-renderer invocation for SVG fixture conversion.
+- **Cause:** The sandbox rejected a macOS path-filter initialization used by the Quick Look process.
+- **Resolution:** Repeated the local conversion with approved execution, writing transient thumbnails only under `/tmp` before copying resulting PNGs into the project.
+- **Verification:** All five project-created PNG fixtures were produced successfully.
+- **Prevention:** Keep renderer intermediates outside the repository and seek scoped local execution approval when operating-system helpers require it.
+
+## 2026-07-18 — Change — comprehensive local sample test pack
+
+- **Workstream:** Lead / manual acceptance testing
+- **Files:** `samples/`, `samples/README.md`, `README.md`
+- **Why:** Users need reproducible images to test supported artwork, edge cases, and validation failures without sharing private uploads.
+- **Resolution:** Added attributable public photo/document/multi-colour samples plus project-created line-art, flat-logo, transparent-icon, noisy-sketch, blank, corrupt, and oversized cases. Added a manual test matrix, expected outcomes, provenance, and a README link.
+- **Verification:** All raster assets were file-validated; generated logo PNG was visually inspected; `git diff --check` passes.
+- **Takeaway:** A test pack should include both quality expectations for supported inputs and explicit failure expectations for unsupported or invalid inputs.
+
+## 2026-07-18 — Error E-033 — repeat-upload recommendation state could look stale
+
+- **Workstream:** Lead / repeat-upload frontend correction
+- **Context:** Selecting a second image while the browser-local recommendation for the prior image was still pending, or selecting the same local file again after another upload.
+- **Cause:** The new upload initially retained the prior image's visible option values until analysis completed, and the native file input retained its value, which can suppress a same-file change event.
+- **Resolution:** New selection immediately resets to default options and an explicit “Analyzing new image” state. Conversion controls are disabled only during analysis while the upload control remains available for a newer replacement. Recommendation responses remain identity-guarded; analysis failure unlocks manual settings. The native file input now resets after every selection.
+- **Verification:** Added two reducer tests for latest-upload application and analysis failure fallback. Frontend lint, 13 tests, production build, and diff validation passed. Rendered workbench check passed with no framework overlay or browser console errors.
+- **Prevention:** Separate file replacement from recommendation completion, make pending analysis visible, and reset native file input values when same-file re-selection is supported.
+
+## 2026-07-18 — Error E-034 — same-hue multi-colour icon classified as Line art
+
+- **Workstream:** Lead / recommendation correction
+- **Context:** A transparent icon with a yellow fill and brown outline was auto-selected as Line art.
+- **Cause:** The heuristic counted broad hue families only; yellow and brown shared the same coarse hue bucket, even though they are distinct, prominent fill colours.
+- **Resolution:** Added a prominent-artwork-palette count based on coarse RGB buckets and coverage. Two substantial fills now select Illustration even when their hue family is the same.
+- **Verification:** Added a dedicated same-hue multi-fill recommendation test. Frontend lint, 14 tests, production build, diff validation, and rendered browser smoke checks passed with no console errors.
+- **Prevention:** Combine hue-family analysis with palette separation and area coverage; hue alone cannot distinguish related fill colours from a single-ink mark.

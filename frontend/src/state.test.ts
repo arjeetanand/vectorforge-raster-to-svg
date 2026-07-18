@@ -15,33 +15,56 @@ describe('workbenchReducer', () => {
     expect(result.file).toBe(file)
     expect(result.job).toBeNull()
     expect(result.error).toBeNull()
+    expect(result.recommendationPending).toBe(true)
+    expect(result.options).toEqual(initialState.options)
   })
 
   it('does not apply a stale recommendation after a second upload', () => {
     const first = new File(['first'], 'first.png', { type: 'image/png' })
     const second = new File(['second'], 'second.png', { type: 'image/png' })
     const selectedSecond = workbenchReducer(initialState, { type: 'file-selected', file: second, sourceUrl: 'blob:second' })
-    const lineArt = recommendFromMetrics({ colorDiversity: 2, colorFamilyCount: 1, coloredPixelRatio: 0.08, saturatedPixelRatio: 0.08, inkCoverage: 0.12, averageBrightness: 242 })
+    const lineArt = recommendFromMetrics({ colorDiversity: 2, colorFamilyCount: 1, prominentArtworkColorCount: 1, coloredPixelRatio: 0.08, saturatedPixelRatio: 0.08, inkCoverage: 0.12, averageBrightness: 242 })
     const result = workbenchReducer(selectedSecond, { type: 'recommendation-ready', file: first, sourceUrl: 'blob:first', recommendation: lineArt })
     expect(result).toBe(selectedSecond)
     expect(result.file).toBe(second)
     expect(result.job).toBeNull()
+    expect(result.recommendationPending).toBe(true)
+  })
+
+  it('applies only the latest upload recommendation after resetting old settings', () => {
+    const first = new File(['first'], 'first.png', { type: 'image/png' })
+    const second = new File(['second'], 'second.png', { type: 'image/png' })
+    const firstSelected = workbenchReducer({ ...initialState, options: { ...initialState.options, mode: 'illustration', colorCount: 12 } }, { type: 'file-selected', file: first, sourceUrl: 'blob:first' })
+    const secondSelected = workbenchReducer(firstSelected, { type: 'file-selected', file: second, sourceUrl: 'blob:second' })
+    const lineArt = recommendFromMetrics({ colorDiversity: 2, colorFamilyCount: 1, prominentArtworkColorCount: 1, coloredPixelRatio: 0.08, saturatedPixelRatio: 0.08, inkCoverage: 0.12, averageBrightness: 242 })
+    const ready = workbenchReducer(secondSelected, { type: 'recommendation-ready', file: second, sourceUrl: 'blob:second', recommendation: lineArt })
+    expect(secondSelected.options).toEqual(initialState.options)
+    expect(ready.recommendationPending).toBe(false)
+    expect(ready.options).toEqual(lineArt.options)
+  })
+
+  it('unblocks manual settings when recommendation analysis fails', () => {
+    const file = new File(['image'], 'image.png', { type: 'image/png' })
+    const selected = workbenchReducer(initialState, { type: 'file-selected', file, sourceUrl: 'blob:image' })
+    const unavailable = workbenchReducer(selected, { type: 'recommendation-unavailable', file, sourceUrl: 'blob:image' })
+    expect(unavailable.recommendationPending).toBe(false)
+    expect(unavailable.recommendationUnavailable).toBe(true)
   })
 
   it('uses a line-art profile for sparse single-ink artwork', () => {
-    const recommendation = recommendFromMetrics({ colorDiversity: 2, colorFamilyCount: 1, coloredPixelRatio: 0.08, saturatedPixelRatio: 0.08, inkCoverage: 0.12, averageBrightness: 242 })
+    const recommendation = recommendFromMetrics({ colorDiversity: 2, colorFamilyCount: 1, prominentArtworkColorCount: 1, coloredPixelRatio: 0.08, saturatedPixelRatio: 0.08, inkCoverage: 0.12, averageBrightness: 242 })
     expect(recommendation.mode).toBe('line-art')
     expect(recommendation.options.minimumComponentArea).toBeGreaterThan(initialState.options.minimumComponentArea)
   })
 
   it('uses illustration for a colorful multi-region image', () => {
-    const recommendation = recommendFromMetrics({ colorDiversity: 9, colorFamilyCount: 3, coloredPixelRatio: 0.42, saturatedPixelRatio: 0.42, inkCoverage: 0.64, averageBrightness: 148 })
+    const recommendation = recommendFromMetrics({ colorDiversity: 9, colorFamilyCount: 3, prominentArtworkColorCount: 3, coloredPixelRatio: 0.42, saturatedPixelRatio: 0.42, inkCoverage: 0.64, averageBrightness: 148 })
     expect(recommendation.mode).toBe('illustration')
     expect(recommendation.options.colorCount).toBeGreaterThan(3)
   })
 
   it('warns when an image appears photo-like', () => {
-    const recommendation = recommendFromMetrics({ colorDiversity: 32, colorFamilyCount: 7, coloredPixelRatio: 0.35, saturatedPixelRatio: 0.35, inkCoverage: 0.78, averageBrightness: 126 })
+    const recommendation = recommendFromMetrics({ colorDiversity: 32, colorFamilyCount: 7, prominentArtworkColorCount: 7, coloredPixelRatio: 0.35, saturatedPixelRatio: 0.35, inkCoverage: 0.78, averageBrightness: 126 })
     expect(recommendation.message).toContain('photo-like')
     expect(recommendation.confidence).toBe('medium')
   })
@@ -53,7 +76,7 @@ describe('workbenchReducer', () => {
   })
 
   it('recommends illustration for a sparse multi-colour logo on white', () => {
-    const recommendation = recommendFromMetrics({ colorDiversity: 5, colorFamilyCount: 2, coloredPixelRatio: 0.06, saturatedPixelRatio: 0.05, inkCoverage: 0.09, averageBrightness: 243 })
+    const recommendation = recommendFromMetrics({ colorDiversity: 5, colorFamilyCount: 2, prominentArtworkColorCount: 2, coloredPixelRatio: 0.06, saturatedPixelRatio: 0.05, inkCoverage: 0.09, averageBrightness: 243 })
     expect(recommendation.mode).toBe('illustration')
     expect(recommendation.options.colorCount).toBeGreaterThanOrEqual(3)
   })
@@ -64,6 +87,11 @@ describe('workbenchReducer', () => {
     expect(result.options.mode).toBe('illustration')
     expect(result.job).toBeNull()
     expect(result.revectorizeRequired).toBe(true)
+  })
+
+  it('uses illustration for distinct fills that share the same hue family', () => {
+    const recommendation = recommendFromMetrics({ colorDiversity: 3, colorFamilyCount: 1, prominentArtworkColorCount: 2, coloredPixelRatio: 0.27, saturatedPixelRatio: 0.27, inkCoverage: 0.27, averageBrightness: 220 })
+    expect(recommendation.mode).toBe('illustration')
   })
 
   it('marks a created job as no longer submitting', () => {
