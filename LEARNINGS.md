@@ -578,3 +578,165 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** No code change is needed. Treat it as an error only when Redis exits while `docker compose up` is expected to keep services running.
 - **Verification:** Exit status 0 conventionally indicates successful process termination, unlike a nonzero crash status.
 - **Prevention:** Check `docker compose ps` and service logs while the stack is running before diagnosing a clean teardown as a failure.
+
+## 2026-07-18 — Error E-035 — external GitHub repository verification unavailable
+
+- **Workstream:** Lead / publication verification
+- **Context:** Read-only verification attempt after the user pushed the repository to GitHub.
+- **Cause:** The external page fetch returned a cache miss and search did not yet surface the repository; this can occur for a private repository or a newly indexed public repository.
+- **Resolution:** Did not alter repository visibility, remote settings, or Git history. Accepted the user's confirmed push and recorded the external-verification limitation.
+- **Verification:** The GitHub URL was supplied by the user; no public-index claim is made without a successful fetch.
+- **Prevention:** Verify private/new repositories from the authenticated GitHub session or local `git remote -v` rather than relying only on external indexing.
+
+## 2026-07-18 — Change — persistent project and agent guidance
+
+- **Workstream:** Lead / multi-agent integration
+- **Files:** `PROJECT.md`, `AGENTS.md`
+- **Why:** The reliability roadmap now spans API, CV, ML, UI, tests, and documentation. Agents need a single source of truth to prevent unsupported scope, inconsistent product claims, or unsafe logging.
+- **Resolution:** Added a concise project contract covering supported inputs, architecture, segmentation precedence, model policy, quality-report semantics, validation, and agent handoff rules.
+- **Verification:** The guides were created before the current specialist workstreams began and explicitly require `LEARNINGS.md` reconciliation.
+- **Prevention:** Future agent work must read these documents before implementation and stay within its assigned file boundary.
+
+## 2026-07-18 — Change — frontend quality report and idempotent submission
+
+- **Workstream:** Lead / frontend reliability
+- **Files:** `frontend/src/{api.ts,api.test.ts,App.tsx,components.tsx,styles.css}`
+- **Why:** A completed SVG needs understandable quality evidence, and a retried upload must not accidentally create duplicate jobs.
+- **Resolution:** Added typed quality-report mapping and an accessible conversion-quality panel. The browser now supplies one `Idempotency-Key` per pending submission, reuses it after a transient POST failure, and creates a fresh key only after the API has confirmed a job or the source/settings change.
+- **Verification:** `npm run lint`, `npm run test` (15 tests), and `npm run build` passed.
+- **Prevention:** Keep frontend and API quality-field names aligned through typed mapping tests, and preserve a pending idempotency key until a POST receives a confirmed job response.
+
+## 2026-07-18 — Change — quality-report documentation
+
+- **Workstream:** Lead / product documentation
+- **Files:** `README.md`, `docs/api.md`, `docs/quality.md`
+- **Why:** A heuristic quality score can be misleading unless its limits, warnings, and model-fallback behavior are clearly documented.
+- **Resolution:** Documented the quality panel, field meanings, correct interpretation of `good`/`review`/`unsupported`, empty-SVG prevention, model fallback provenance, and idempotent API usage.
+- **Verification:** Documentation links resolve within the repository and match the typed frontend contract.
+- **Prevention:** Treat quality metrics as explainable indicators, never as unqualified accuracy or fidelity claims.
+
+## 2026-07-18 — Error E-036 — delegated frontend workstream sandbox rejection
+
+- **Workstream:** Frontend specialist delegation
+- **Context:** The assigned agent attempted its required read-only inspection of project guidance and frontend files.
+- **Cause:** The sandbox rejected the agent session due to a coordination-session risk flag before it could inspect or edit files.
+- **Resolution:** No files were changed by that agent. The lead implemented the frontend task within the shared workspace and validated it locally.
+- **Verification:** The agent reported the blocked read-only command; frontend lint, tests, and build passed after the lead implementation.
+- **Prevention:** Keep delegated task scope narrow and reassign blocked work to the lead rather than attempting a prohibited sandbox workaround.
+
+## 2026-07-18 — Error E-037 — local Python test environment absent
+
+- **Workstream:** Lead / backend validation
+- **Context:** Attempt to run `backend/tests` through the documented `.venv/bin/python` environment.
+- **Cause:** The repository has no local `.venv` interpreter at this time.
+- **Resolution:** Did not install dependencies implicitly. Frontend checks were run; backend runtime tests remain for Docker Compose or an explicitly bootstrapped Python environment.
+- **Verification:** The command safely reported that the project virtual environment is unavailable.
+- **Prevention:** Run the documented environment bootstrap before backend test execution, or use the Docker Compose/CI test environment.
+
+## 2026-07-18 — Change — explainable quality diagnostics and input-fit warnings
+
+- **Workstream:** CV quality specialist
+- **Files:** `backend/app/pipeline/{quality.py,colors.py,types.py,vectorizer.py,vectorize.py,__init__.py}`, `backend/tests/test_pipeline.py`
+- **Why:** A visually plausible preview alone cannot tell a user whether the generated SVG is complete, over-complex, or based on input outside the supported artwork scope.
+- **Resolution:** Added deterministic JSON-safe quality reports with score, level, warnings, foreground coverage, editable paths, retained colours, removed noise components, preview-similarity indicator, SVG complexity, input assessment, and model provenance. Added conservative photo/document/spreadsheet/screenshot detection that warns rather than silently claiming success; zero-path output still fails safely.
+- **Verification:** The integrated backend suite passed 25 tests; focused quality tests cover normal artwork, low similarity, dense complexity, photo-like, and document-like inputs.
+- **Prevention:** Treat all quality values as explainable output-health indicators, never as guaranteed artistic fidelity or model accuracy.
+
+## 2026-07-18 — Change — idempotent API and retry-safe worker ownership
+
+- **Workstream:** API reliability specialist
+- **Files:** `backend/app/{models.py,db.py,api/routes.py,schemas.py,tasks.py}`, `backend/tests/test_api_contracts.py`
+- **Why:** Retrying an upload or redelivering a queue message must not create duplicate jobs or rewrite completed artifacts.
+- **Resolution:** Added a unique idempotency-key index, backward-compatible additive database migration, source-digest/options comparison, safe `409` conflict responses, duplicate staging-artifact cleanup, atomic queued-to-processing worker claims, and persisted nullable diagnostics.
+- **Verification:** API-contract tests cover same-request replay, conflicting reuse, legacy schema migration, and ignoring processing/completed/failed worker tasks; all backend tests pass.
+- **Prevention:** Let the database uniqueness constraint be the final authority for concurrent submissions, and only allow workers to claim jobs in `queued` state.
+
+## 2026-07-18 — Change — structured pretrained-model provenance
+
+- **Workstream:** Lead / ML lifecycle
+- **Files:** `backend/app/pipeline/vectorize.py`, `backend/app/schemas.py`, `backend/tests/test_ml_segmentation.py`, `frontend/src/{api.ts,api.test.ts,components.tsx}`, `docs/{model.md,quality.md}`
+- **Why:** A single display string cannot adequately explain which foreground masker ran or why the optional pretrained model fell back.
+- **Resolution:** Persisted safe model metadata for the existing TorchVision DeepLabV3-MobileNetV3-Large checkpoint: request flag, provider, architecture, checkpoint name/digest, and fallback reason. The UI maps and displays fallback information; no inference-time download or additional model was added.
+- **Verification:** Added model-provenance unit coverage and frontend API mapping coverage; backend and frontend suites pass.
+- **Prevention:** Store only reviewed provenance and compact fallback reasons—never checkpoint paths or raw loader exceptions.
+
+## 2026-07-18 — Change — backend API test dependency
+
+- **Workstream:** Lead / test infrastructure
+- **Files:** `backend/requirements.txt`
+- **Why:** FastAPI's `TestClient` requires `httpx`, but the backend test requirements did not declare it.
+- **Resolution:** Pinned `httpx==0.28.1` alongside the backend requirements.
+- **Verification:** The complete backend suite now collects and passes in a clean Python 3.12 virtual environment.
+- **Prevention:** Add explicit test-only runtime dependencies to the same reproducible requirements file used by CI.
+
+## 2026-07-18 — Change — quality and idempotency user documentation
+
+- **Workstream:** Lead / documentation
+- **Files:** `README.md`, `docs/api.md`, `docs/quality.md`, `docs/model.md`
+- **Why:** New diagnostics, fallback provenance, and replay behavior require correct interpretation by users and API consumers.
+- **Resolution:** Documented quality fields and limitations, `good`/`review`/`unsupported` states, idempotency semantics, model provenance, and fine-tuning as a future user-dataset capability rather than a from-scratch training claim.
+- **Verification:** Internal documentation links resolve and match the API/TypeScript contracts.
+- **Prevention:** Update API and model documentation whenever response fields or lifecycle guarantees change.
+
+## 2026-07-18 — Error E-038 — quality-specialist temporary test invocation had no application import path
+
+- **Workstream:** CV quality specialist
+- **Context:** Focused backend test attempts in temporary environments.
+- **Cause:** The temporary Python invocation did not have `backend/` on `PYTHONPATH`; an earlier shell command also treated `celery[redis]` as an unquoted glob.
+- **Resolution:** No production change was made for the temporary command. The lead later ran the documented test command using `PYTHONPATH=backend` in a Python 3.12 project environment.
+- **Verification:** Full backend test suite passes after integration.
+- **Prevention:** Quote package extras in shell commands and always run backend tests with the repository's backend import path.
+
+## 2026-07-18 — Error E-039 — missing HTTP client blocked API-contract test collection
+
+- **Workstream:** Lead / backend validation
+- **Context:** First full `pytest` run after creating the local Python 3.12 environment.
+- **Cause:** `fastapi.testclient` requires `httpx`, which was not present in the declared backend requirements.
+- **Resolution:** Added pinned `httpx==0.28.1` and installed it into the ignored local test environment.
+- **Verification:** Rerun collected all tests and passed 25 tests.
+- **Prevention:** Keep FastAPI test-client dependencies explicit in `backend/requirements.txt`.
+
+## 2026-07-18 — Error E-040 — success-fixture artwork was correctly filtered as noise
+
+- **Workstream:** Lead / backend validation
+- **Context:** Two worker-facade tests expected a completed SVG from a one-pixel mark or a blank white image.
+- **Cause:** Production component filtering correctly removes tiny isolated noise and blank inputs correctly produce no SVG paths.
+- **Resolution:** Replaced the test fixtures with clear filled black marks while retaining separate blank-image failure coverage.
+- **Verification:** Both worker-facade tests pass as part of the 25-test backend suite.
+- **Prevention:** Test successful vectorization with artwork larger than the configured minimum component area; test empty/noise inputs as failures.
+
+## 2026-07-18 — Error E-041 — API-contract test lint violation
+
+- **Workstream:** Lead / backend validation
+- **Context:** Ruff check after the backend test suite passed.
+- **Cause:** `test_api_contracts.py` imported SQLAlchemy's `Session` type without using it.
+- **Resolution:** Removed the unused import and ran Ruff formatting/checks again.
+- **Verification:** Ruff check and format check pass for all backend app and test files.
+- **Prevention:** Run static analysis after adding test infrastructure, not only after application-code changes.
+
+## 2026-07-18 — Error E-042 — validation command used the frontend directory for backend paths
+
+- **Workstream:** Lead / integration validation
+- **Context:** A combined frontend/backend check executed `compileall backend/app backend/tests` while its working directory was `frontend/`.
+- **Cause:** Relative backend paths were resolved under `frontend/`.
+- **Resolution:** Reran bytecode compilation and whitespace checks from the repository root with an isolated temporary bytecode cache.
+- **Verification:** Backend sources/tests compile successfully from the correct directory.
+- **Prevention:** Keep frontend and backend verification commands in separate working-directory steps.
+
+## 2026-07-18 — Error E-043 — sandbox restrictions affected local test servers and browser file injection
+
+- **Workstream:** Lead / rendered UI validation
+- **Context:** Starting Vite/Uvicorn in the restricted sandbox and uploading a non-sensitive sample fixture through the browser-control file chooser.
+- **Cause:** The sandbox denied local port binding until approved elevation; the browser-control surface later rejected `setFiles` with a permission restriction even though the file was a repository sample. An initial screenshot call also used an unsupported Playwright screenshot method instead of the tab-level capture method.
+- **Resolution:** Started Vite with approved local-server permission, verified desktop and 390px mobile workbench shells, used the supported tab screenshot method, and relied on frontend/API contract tests for upload/result behavior. No user upload was transmitted.
+- **Verification:** Browser checks found the correct title/workbench content, no framework overlay, and no console warnings/errors; frontend lint, 15 tests, and production build passed.
+- **Prevention:** Use approved local-server execution for rendered checks, the documented file-chooser flow only where browser permissions allow it, and tab-level screenshots in this browser surface.
+
+## 2026-07-18 — Error E-044 — local Python bootstrap needed the project package tool and writable cache access
+
+- **Workstream:** Lead / backend validation
+- **Context:** Creating and populating the ignored Python 3.12 test environment.
+- **Cause:** The fresh environment intentionally had no `pip`, and the sandbox could not write the package tool's normal user cache.
+- **Resolution:** Used the installed `uv` package tool and approved cache/network access to create `.venv` and install the declared pinned dependencies. The environment remains ignored by Git.
+- **Verification:** Imports succeeded and the backend suite passed 25 tests.
+- **Prevention:** Use `uv pip` or bootstrap `pip` explicitly for fresh lightweight environments; request only the scoped permission needed for dependency installation.

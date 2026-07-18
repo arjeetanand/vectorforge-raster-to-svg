@@ -5,8 +5,9 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .colors import filter_components, quantize_rgb
+from .colors import filter_components_with_diagnostics, quantize_rgb
 from .contours import contour_to_svg_path, simplify_contour
+from .quality import build_quality_report
 from .segmentation import SegmentationModel, foreground_mask
 from .svg import svg_document
 from .types import VectorizationOptions, VectorizationResult
@@ -28,50 +29,70 @@ def vectorize(
     options = options or VectorizationOptions()
     mask_result = foreground_mask(rgb, alpha, segmentation_model)
     if options.mode == "line-art":
-        preview, layers = _line_art_layers(rgb, mask_result.mask, options)
+        preview, layers, removed_component_count = _line_art_layers(
+            rgb, mask_result.mask, options
+        )
     else:
-        preview, layers = _illustration_layers(rgb, mask_result.mask, options)
+        preview, layers, removed_component_count = _illustration_layers(
+            rgb, mask_result.mask, options
+        )
     paths: list[tuple[str, str]] = []
     for binary, color in layers:
         paths.extend(_paths_for_mask(binary, color, options.smoothing))
+    svg = svg_document(rgb.shape[1], rgb.shape[0], paths)
     return VectorizationResult(
-        svg=svg_document(rgb.shape[1], rgb.shape[0], paths),
+        svg=svg,
         width=rgb.shape[1],
         height=rgb.shape[0],
         model_used=mask_result.source,
         foreground_mask=mask_result.mask,
         preview_rgb=preview,
         path_count=len(paths),
+        quality=build_quality_report(
+            source_rgb=rgb,
+            preview_rgb=preview,
+            foreground_mask=mask_result.mask,
+            path_count=len(paths),
+            retained_color_count=len(layers),
+            removed_component_count=removed_component_count,
+            svg_paths=[path for path, _ in paths],
+            model_used=mask_result.source,
+        ),
     )
 
 
 def _line_art_layers(
     rgb: np.ndarray, foreground: np.ndarray, options: VectorizationOptions
-) -> tuple[np.ndarray, list[tuple[np.ndarray, str]]]:
+) -> tuple[np.ndarray, list[tuple[np.ndarray, str]], int]:
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     # Otsu selects dark ink on the usual light background. Foreground restricts
     # the result when alpha/model has supplied a reliable artwork region.
     _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     ink = cv2.bitwise_and(ink, foreground)
-    ink = filter_components(ink, options.min_component_area)
+    filtered = filter_components_with_diagnostics(ink, options.min_component_area)
+    ink = filtered.mask
     preview = np.full_like(rgb, 255)
     preview[ink > 0] = (0, 0, 0)
-    return preview, [(ink, "#111827")]
+    layers = [(ink, "#111827")] if np.any(ink) else []
+    return preview, layers, filtered.removed_component_count
 
 
 def _illustration_layers(
     rgb: np.ndarray, foreground: np.ndarray, options: VectorizationOptions
-) -> tuple[np.ndarray, list[tuple[np.ndarray, str]]]:
+) -> tuple[np.ndarray, list[tuple[np.ndarray, str]], int]:
     preview = quantize_rgb(rgb, options.colors, foreground)
     active_colours = np.unique(preview[foreground > 0].reshape(-1, 3), axis=0)
     layers: list[tuple[np.ndarray, str]] = []
+    removed_component_count = 0
     for color in active_colours:
         layer = np.all(preview == color, axis=2).astype(np.uint8) * 255
         layer = cv2.bitwise_and(layer, foreground)
-        layer = filter_components(layer, options.min_component_area)
+        filtered = filter_components_with_diagnostics(layer, options.min_component_area)
+        layer = filtered.mask
+        removed_component_count += filtered.removed_component_count
         if np.any(layer):
             layers.append((layer, _hex_color(color)))
-    return preview, layers
+    return preview, layers, removed_component_count
 
 
 def _paths_for_mask(

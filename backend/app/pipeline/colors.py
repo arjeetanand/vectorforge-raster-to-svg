@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
+
+
+@dataclass(frozen=True)
+class ComponentFilterResult:
+    """A filtered binary layer and its removed-component count."""
+
+    mask: np.ndarray
+    removed_component_count: int
 
 
 def quantize_rgb(
@@ -37,12 +47,23 @@ def quantize_rgb(
 def filter_components(mask: np.ndarray, min_area: int) -> np.ndarray:
     """Remove connected foreground components smaller than ``min_area``."""
 
+    return filter_components_with_diagnostics(mask, min_area).mask
+
+
+def filter_components_with_diagnostics(
+    mask: np.ndarray, min_area: int
+) -> ComponentFilterResult:
+    """Remove noise while recording how many connected components were dropped."""
+
     if min_area < 1:
         raise ValueError("min_area must be positive")
     binary = (mask > 0).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     filtered = np.zeros_like(binary)
+    removed_component_count = 0
     for label in range(1, count):
         if stats[label, cv2.CC_STAT_AREA] >= min_area:
             filtered[labels == label] = 255
-    return filtered
+        else:
+            removed_component_count += 1
+    return ComponentFilterResult(filtered, removed_component_count)

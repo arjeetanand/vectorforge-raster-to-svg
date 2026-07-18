@@ -1,5 +1,5 @@
 import { useId, type ChangeEvent, type DragEvent } from 'react'
-import type { JobStatus, VectorizationOptions } from './api'
+import type { JobStatus, QualityReport, VectorizationOptions } from './api'
 import type { VectorizationRecommendation } from './recommendation'
 import { ArrowRightIcon, CheckIcon, DownloadIcon, ImageIcon, SlidersIcon, UploadIcon } from './icons'
 
@@ -130,4 +130,30 @@ export function Downloads({ svgUrl, comparisonUrl }: { svgUrl?: string; comparis
     {svgUrl ? <a className="download-button is-primary" href={svgUrl} download><DownloadIcon size={16} /> Download SVG</a> : null}
     {comparisonUrl ? <a className="download-button" href={comparisonUrl} download><DownloadIcon size={16} /> Comparison PNG</a> : null}
   </div>
+}
+
+function percent(value: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`
+}
+
+export function QualityPanel({ quality, modelUsed }: { quality?: QualityReport; modelUsed?: string }) {
+  if (!quality) return null
+  const label = quality.level === 'good' ? 'Good match' : quality.level === 'review' ? 'Review recommended' : 'Unsupported input'
+  return (
+    <section className={`quality-panel is-${quality.level}`} aria-label="Conversion quality report" aria-live="polite">
+      <div className="quality-heading"><div><h2>Conversion quality</h2><p>Explainable indicators from this completed job.</p></div><span>{label} · {quality.score}/100</span></div>
+      <dl className="quality-grid">
+        <div><dt>Visual similarity</dt><dd>{percent(quality.visualSimilarity)}</dd></div>
+        <div><dt>Editable paths</dt><dd>{quality.pathCount}</dd></div>
+        <div><dt>Color layers</dt><dd>{quality.retainedColorCount}</dd></div>
+        <div><dt>Noise removed</dt><dd>{quality.removedComponentCount}</dd></div>
+        <div><dt>Foreground found</dt><dd>{percent(quality.foregroundCoverage)}</dd></div>
+        <div><dt>SVG complexity</dt><dd>{quality.svgComplexity.level}</dd></div>
+      </dl>
+      {quality.inputKind ? <p className="quality-kind">Input assessment: {quality.inputKind}</p> : null}
+      {modelUsed ? <p className="quality-model">Foreground mask: {modelUsed}</p> : null}
+      {quality.modelMetadata?.fallbackReason ? <p className="quality-model">Model fallback: {quality.modelMetadata.fallbackReason}</p> : null}
+      {quality.warnings.length ? <ul className="quality-warnings">{quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
+    </section>
+  )
 }

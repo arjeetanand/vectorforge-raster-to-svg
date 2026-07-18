@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { createVectorization, getVectorization, vectorPreviewUrl } from './api'
-import { ArtworkPane, Downloads, Header, Inspector, RecommendationNotice, StatusTimeline, UploadDropzone } from './components'
+import { ArtworkPane, Downloads, Header, Inspector, QualityPanel, RecommendationNotice, StatusTimeline, UploadDropzone } from './components'
 import { analyzeImageFile } from './recommendation'
 import { initialState, workbenchReducer } from './state'
 
@@ -13,11 +13,15 @@ function isPolling(status?: string): boolean {
 export default function App() {
   const [state, dispatch] = useReducer(workbenchReducer, initialState)
   const currentSourceUrl = useRef<string | null>(null)
+  // A temporary POST failure can be retried with the same key. After the API
+  // confirms a job, a later explicit conversion receives a fresh key.
+  const pendingSubmissionKey = useRef<string | null>(null)
 
   const selectFile = useCallback((file: File) => {
     const sourceUrl = URL.createObjectURL(file)
     if (currentSourceUrl.current) URL.revokeObjectURL(currentSourceUrl.current)
     currentSourceUrl.current = sourceUrl
+    pendingSubmissionKey.current = null
     dispatch({ type: 'file-selected', file, sourceUrl })
     void analyzeImageFile(file)
       .then((recommendation) => dispatch({ type: 'recommendation-ready', file, sourceUrl, recommendation }))
@@ -49,7 +53,10 @@ export default function App() {
     if (!state.file || state.submitting || isPolling(state.job?.status)) return
     dispatch({ type: 'submit-started' })
     try {
-      const job = await createVectorization(state.file, state.options)
+      const idempotencyKey = pendingSubmissionKey.current ?? crypto.randomUUID()
+      pendingSubmissionKey.current = idempotencyKey
+      const job = await createVectorization(state.file, state.options, idempotencyKey)
+      pendingSubmissionKey.current = null
       dispatch({ type: 'job-updated', job })
     } catch (error) {
       dispatch({ type: 'request-failed', error: error instanceof Error ? error.message : 'The upload could not be processed.' })
@@ -59,6 +66,7 @@ export default function App() {
   const reset = useCallback(() => {
     if (currentSourceUrl.current) URL.revokeObjectURL(currentSourceUrl.current)
     currentSourceUrl.current = null
+    pendingSubmissionKey.current = null
     dispatch({ type: 'reset' })
   }, [])
 
@@ -90,9 +98,10 @@ export default function App() {
             {state.recommendationPending ? <aside className="recommendation" aria-live="polite"><strong>Analyzing new image…</strong><span>Waiting to apply settings for this upload. You can select another image at any time.</span></aside> : state.recommendation ? <RecommendationNotice recommendation={state.recommendation} /> : state.recommendationUnavailable ? <aside className="recommendation" aria-live="polite"><strong>Automatic recommendation unavailable</strong><span>Choose Line art or Illustration manually, then vectorize.</span></aside> : null}
             <div className="artwork-grid"><ArtworkPane title="Original" caption="Your uploaded raster" imageUrl={sourceUrl} emptyText="Your source image will appear here" /><ArtworkPane title="Vector result" caption="Live SVG preview" imageUrl={previewUrl} emptyText={state.recommendationPending ? 'Analyzing your new upload…' : processingBusy ? 'VectorForge is tracing your artwork…' : 'Your editable SVG will appear here'} isVector /></div>
             <StatusTimeline status={job?.status} modelUsed={job?.modelUsed} revectorizeRequired={state.revectorizeRequired} />
+            <QualityPanel quality={job?.quality} modelUsed={job?.modelUsed} />
             <Downloads svgUrl={job?.artifacts.svgUrl} comparisonUrl={job?.artifacts.comparisonUrl} />
           </div>
-          <Inspector options={state.options} disabled={busy || !state.file} onChange={(options) => dispatch({ type: 'options-updated', options })} onSubmit={submit} />
+          <Inspector options={state.options} disabled={busy || !state.file} onChange={(options) => { pendingSubmissionKey.current = null; dispatch({ type: 'options-updated', options }) }} onSubmit={submit} />
         </div>
       </main>
       <footer>VectorForge works best with clear sketches, logos, and flat-color illustrations.</footer>

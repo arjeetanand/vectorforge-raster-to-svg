@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -45,3 +45,10 @@ class VectorizationResult:
     foreground_mask: np.ndarray
     preview_rgb: np.ndarray
     path_count: int
+    quality: dict[str, Any]
+
+    @property
+    def quality_report(self) -> dict[str, Any]:
+        """Compatibility alias for callers using the descriptive old name."""
+
+        return self.quality

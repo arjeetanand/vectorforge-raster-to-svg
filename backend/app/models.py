@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, JSON, String, Text, func
+from sqlalchemy import DateTime, Enum, Index, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -19,6 +19,11 @@ class JobStatus(str, enum.Enum):
 
 class Vectorization(Base):
     __tablename__ = "vectorizations"
+    __table_args__ = (
+        # Null values remain allowed for callers that do not request replay
+        # protection. Every supplied key must identify exactly one job.
+        Index("uq_vectorizations_idempotency_key", "idempotency_key", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -39,6 +44,9 @@ class Vectorization(Base):
     model_used: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON diagnostics are deliberately nullable so existing job rows and
+    # failed jobs remain readable during a rolling deployment.
+    diagnostics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
