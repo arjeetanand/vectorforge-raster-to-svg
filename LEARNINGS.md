@@ -226,3 +226,48 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Executed backend tests/lint/format checks, frontend clean install/lint/tests/build, and whitespace validation.
 - **Verification:** Backend: 14 tests passed, Ruff check passed, 26 files formatted. Frontend: 3 tests passed, lint and production build passed, `npm ci` audit reported 0 vulnerabilities. `git diff --check` passed.
 - **Takeaway:** Docker Compose/browser validation remains the only environment-blocked step because Docker and an in-app browser are unavailable locally; the Compose CI health smoke covers the container startup path.
+
+## 2026-07-18 — Change — complete runbook
+
+- **Workstream:** Lead / documentation
+- **Files:** `README.md`, `docker-compose.yml`
+- **Why:** Document complete Docker and local-development startup, usage, verification, optional model installation, and cleanup so the application can be run without prior project knowledge.
+- **Resolution:** Added step-by-step commands and mounted the ignored `models/` directory read-only into API/worker containers for the optional pinned model.
+- **Verification:** Compose configuration remains syntactically consistent; Docker execution requires a Docker-enabled environment.
+- **Takeaway:** Operational docs must match volume mounts and runtime configuration, especially for optional model assets.
+
+## 2026-07-18 — Change — container model-download support
+
+- **Workstream:** Lead / documentation correction
+- **Files:** `backend/Dockerfile`, `README.md`
+- **Why:** Docker-first model installation requires the downloader script in the backend image.
+- **Resolution:** Copied `scripts/` into the image and invoke the downloader with `docker compose run` against the mounted model directory.
+- **Verification:** Docker build remains deferred to a Docker-capable environment.
+- **Takeaway:** Docker-only onboarding must not require host Python dependencies.
+
+## 2026-07-18 — Change — writable model bootstrap mount
+
+- **Workstream:** Lead / Docker correctness
+- **Files:** `docker-compose.yml`
+- **Why:** The API container executes the explicit model downloader, which cannot write through a read-only bind mount.
+- **Resolution:** Made the API model mount writable; the worker mount remains read-only for inference.
+- **Verification:** Compose configuration was reviewed against the documented download command.
+- **Takeaway:** Grant write access only to the bootstrap surface that needs it; inference remains read-only.
+
+## 2026-07-18 — Error E-015 — incomplete local Vite installation
+
+- **Workstream:** Lead / frontend debugging
+- **Context:** Local development server reported a missing `vite/dist/node/chunks/dist.js` module.
+- **Cause:** The referenced Vite directory was absent from `frontend/node_modules`, indicating an incomplete local dependency installation. Docker Compose itself had started the Nginx-served production frontend successfully.
+- **Resolution:** Rebuilt dependencies with `npm ci` from `package-lock.json` and added repair instructions to the README.
+- **Verification:** Vite's production build, ESLint, and all three frontend tests pass after the clean install; npm audit reported 0 vulnerabilities.
+- **Prevention:** Use `npm ci` for clean local installs and dependency repairs.
+
+## 2026-07-18 — Change — reproducible frontend image install
+
+- **Workstream:** Lead / frontend debugging
+- **Files:** `frontend/Dockerfile`
+- **Why:** Keep Docker frontend dependency resolution identical to the repaired local dependency tree.
+- **Resolution:** Replaced `npm install` with lockfile-enforced `npm ci` in the frontend build stage.
+- **Verification:** The lockfile install, lint, tests, and Vite production build passed before the image change.
+- **Takeaway:** Production images should consume the committed lockfile rather than resolve floating dependency metadata.

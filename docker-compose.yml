@@ -13,10 +13,13 @@ services:
       VECTORFORGE_DATABASE_URL: postgresql+psycopg://vectorforge:vectorforge@postgres:5432/vectorforge
       VECTORFORGE_REDIS_URL: redis://redis:6379/0
       VECTORFORGE_ARTIFACT_ROOT: /app/data/vectorizations
+      VECTORFORGE_OPTIONAL_MODEL_PATH: /app/models/deeplabv3_mobilenet_v3_large-fc3c493d.pth
+      VECTORFORGE_SEGMENTATION_MODEL_SHA256: fc3c493d68e89cc31ef488c803d5d7dd2f3190fb570598faa49fef69be8e5e70
     ports:
       - "8000:8000"
     volumes:
       - vectorforge-data:/app/data
+      - ./models:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -29,8 +32,11 @@ services:
       VECTORFORGE_DATABASE_URL: postgresql+psycopg://vectorforge:vectorforge@postgres:5432/vectorforge
       VECTORFORGE_REDIS_URL: redis://redis:6379/0
       VECTORFORGE_ARTIFACT_ROOT: /app/data/vectorizations
+      VECTORFORGE_OPTIONAL_MODEL_PATH: /app/models/deeplabv3_mobilenet_v3_large-fc3c493d.pth
+      VECTORFORGE_SEGMENTATION_MODEL_SHA256: fc3c493d68e89cc31ef488c803d5d7dd2f3190fb570598faa49fef69be8e5e70
     volumes:
       - vectorforge-data:/app/data
+      - ./models:/app/models:ro
     depends_on:
       postgres:
         condition: service_healthy
