@@ -16,7 +16,13 @@ from typing import Any
 
 import numpy as np
 
-from .manifest import DEEPLABV3_MOBILENET_V3_LARGE
+from .manifest import (
+    DEFAULT_SEGMENTATION_MODEL_ID,
+    DEEPLABV3_MOBILENET_V3_LARGE,
+    ModelArtifact,
+    get_model_artifact,
+    is_valid_sha256,
+)
 
 
 class SegmentationModelUnavailable(RuntimeError):
@@ -27,6 +33,7 @@ class SegmentationModelUnavailable(RuntimeError):
 class ModelAvailability:
     available: bool
     reason: str | None = None
+    model_id: str = DEFAULT_SEGMENTATION_MODEL_ID
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,7 @@ class ModelSelection:
 
     model: "TorchVisionDeepLabProvider | None"
     fallback_reason: str | None = None
+    model_id: str = DEFAULT_SEGMENTATION_MODEL_ID
 
 
 class TorchVisionDeepLabProvider:
@@ -46,10 +54,14 @@ class TorchVisionDeepLabProvider:
         *,
         device: str = "cpu",
         expected_sha256: str | None = None,
+        artifact: ModelArtifact = DEEPLABV3_MOBILENET_V3_LARGE,
     ) -> None:
         self.weights_path = Path(weights_path)
         self.device = device
-        self.expected_sha256 = expected_sha256.lower() if expected_sha256 else None
+        self.artifact = artifact
+        # Direct provider construction is pinned too; callers may only
+        # override this with an explicitly reviewed full digest.
+        self.expected_sha256 = (expected_sha256 or artifact.sha256).lower()
         self._model: Any | None = None
         self._torch: Any | None = None
 
@@ -57,21 +69,21 @@ class TorchVisionDeepLabProvider:
         """Check prerequisites without loading a model or doing I/O over HTTP."""
 
         if not self.weights_path.is_file():
-            return ModelAvailability(False, "model-unavailable")
-        if self.expected_sha256 is not None and (
-            len(self.expected_sha256) != 64
-            or any(
-                character not in "0123456789abcdef"
-                for character in self.expected_sha256
-            )
+            return ModelAvailability(False, "model-unavailable", self.artifact.model_id)
+        if self.expected_sha256 is not None and not is_valid_sha256(
+            self.expected_sha256
         ):
-            return ModelAvailability(False, "model-checksum-invalid")
+            return ModelAvailability(
+                False, "model-checksum-invalid", self.artifact.model_id
+            )
         if (
             importlib.util.find_spec("torch") is None
             or importlib.util.find_spec("torchvision") is None
         ):
-            return ModelAvailability(False, "torchvision-unavailable")
-        return ModelAvailability(True)
+            return ModelAvailability(
+                False, "torchvision-unavailable", self.artifact.model_id
+            )
+        return ModelAvailability(True, model_id=self.artifact.model_id)
 
     def __call__(self, rgb: np.ndarray) -> np.ndarray:
         return self.predict(rgb)
@@ -105,6 +117,9 @@ class TorchVisionDeepLabProvider:
         try:
             import torch
             from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
+
+            if self.artifact.architecture != DEEPLABV3_MOBILENET_V3_LARGE.architecture:
+                raise SegmentationModelUnavailable("model-architecture-unsupported")
 
             if self.device.startswith("cuda") and not torch.cuda.is_available():
                 raise SegmentationModelUnavailable(
@@ -148,10 +163,16 @@ class TorchVisionDeepLabProvider:
 
 @lru_cache(maxsize=4)
 def _cached_provider(
-    path: str, device: str, expected_sha256: str | None
+    path: str,
+    device: str,
+    expected_sha256: str | None,
+    model_id: str,
 ) -> TorchVisionDeepLabProvider:
     return TorchVisionDeepLabProvider(
-        Path(path), device=device, expected_sha256=expected_sha256
+        Path(path),
+        device=device,
+        expected_sha256=expected_sha256,
+        artifact=get_model_artifact(model_id),
     )
 
 
@@ -161,6 +182,7 @@ def select_configured_segmentation_model(
     *,
     device: str = "cpu",
     expected_sha256: str | None = None,
+    model_id: str = DEFAULT_SEGMENTATION_MODEL_ID,
 ) -> ModelSelection:
     """Select an optional provider, never attempting model acquisition.
 
@@ -169,17 +191,21 @@ def select_configured_segmentation_model(
     """
 
     if not enabled:
-        return ModelSelection(None)
+        return ModelSelection(None, model_id=model_id)
+    try:
+        artifact = get_model_artifact(model_id)
+    except ValueError:
+        return ModelSelection(None, "model-not-registered", model_id)
     if weights_path is None:
-        return ModelSelection(None, "model-not-configured")
+        return ModelSelection(None, "model-not-configured", model_id)
     # An operator can override this pin for a reviewed fine-tuned checkpoint.
     # Otherwise the public TorchVision checkpoint always has a full SHA-256.
-    expected_sha256 = expected_sha256 or DEEPLABV3_MOBILENET_V3_LARGE.sha256
-    provider = _cached_provider(str(weights_path), device, expected_sha256)
+    expected_sha256 = expected_sha256 or artifact.sha256
+    provider = _cached_provider(str(weights_path), device, expected_sha256, model_id)
     availability = provider.availability()
     if not availability.available:
-        return ModelSelection(None, availability.reason)
-    return ModelSelection(provider)
+        return ModelSelection(None, availability.reason, model_id)
+    return ModelSelection(provider, model_id=model_id)
 
 
 def _require_rgb(rgb: np.ndarray) -> None:

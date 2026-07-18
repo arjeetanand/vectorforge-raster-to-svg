@@ -10,7 +10,11 @@ import numpy as np
 from PIL import Image
 
 from app.core.config import get_settings
-from app.ml.manifest import DEEPLABV3_MOBILENET_V3_LARGE
+from app.ml.manifest import (
+    DEFAULT_SEGMENTATION_MODEL_ID,
+    DEEPLABV3_MOBILENET_V3_LARGE,
+    get_model_artifact,
+)
 from app.ml.segmentation import select_configured_segmentation_model
 
 from .image import decode_image
@@ -95,6 +99,7 @@ def vectorize_image(
         model_used=model_used,
         fallback_reason=selection.fallback_reason,
         expected_sha256=settings.segmentation_model_sha256,
+        model_id=selection.model_id,
     )
     return VectorizationOutput(
         svg_path, preview_path, comparison_path, model_used, quality
@@ -117,6 +122,7 @@ def _model_metadata(
     model_used: str,
     fallback_reason: str | None,
     expected_sha256: str | None,
+    model_id: str = DEFAULT_SEGMENTATION_MODEL_ID,
 ) -> dict[str, str | bool | None]:
     """Return provenance that is safe to persist and display.
 
@@ -126,13 +132,30 @@ def _model_metadata(
     presented as the TorchVision public weight.
     """
 
+    try:
+        artifact = get_model_artifact(model_id)
+    except ValueError:
+        artifact = DEEPLABV3_MOBILENET_V3_LARGE
+    requested_model_id = model_id if requested else None
+    configured_digest = expected_sha256 or artifact.sha256
+    public_checkpoint = configured_digest == artifact.sha256
+    requested_version = (
+        artifact.version
+        if requested and public_checkpoint
+        else "operator-configured"
+        if requested
+        else None
+    )
     if model_used == "torchvision":
-        configured_digest = expected_sha256 or DEEPLABV3_MOBILENET_V3_LARGE.sha256
         return {
             "requested": requested,
             "provider": "torchvision",
-            "architecture": DEEPLABV3_MOBILENET_V3_LARGE.architecture,
-            "checkpoint": DEEPLABV3_MOBILENET_V3_LARGE.name,
+            "model_id": artifact.model_id,
+            "version": requested_version,
+            "architecture": artifact.architecture,
+            "checkpoint": artifact.name
+            if public_checkpoint
+            else "operator-configured local checkpoint",
             "checkpoint_sha256": configured_digest,
             "fallback_reason": None,
         }
@@ -140,15 +163,26 @@ def _model_metadata(
         return {
             "requested": requested,
             "provider": "opencv",
-            "architecture": None,
-            "checkpoint": None,
-            "checkpoint_sha256": None,
+            "model_id": requested_model_id,
+            "version": requested_version,
+            # Keep the reviewed requested-model identity even when the
+            # worker falls back.  This explains which checkpoint was absent,
+            # invalid, or failed without persisting a local path or traceback.
+            "architecture": artifact.architecture if requested else None,
+            "checkpoint": artifact.name
+            if requested and public_checkpoint
+            else "operator-configured local checkpoint"
+            if requested
+            else None,
+            "checkpoint_sha256": configured_digest if requested else None,
             "fallback_reason": fallback_reason
             or model_used.removeprefix("opencv-fallback:"),
         }
     return {
         "requested": requested,
         "provider": model_used,
+        "model_id": requested_model_id,
+        "version": requested_version,
         "architecture": None,
         "checkpoint": None,
         "checkpoint_sha256": None,

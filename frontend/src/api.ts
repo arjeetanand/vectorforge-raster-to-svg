@@ -36,6 +36,8 @@ export interface QualityReport {
   modelMetadata?: {
     requested: boolean
     provider: string
+    modelId?: string | null
+    version?: string | null
     architecture?: string | null
     checkpoint?: string | null
     checkpointSha256?: string | null
@@ -87,6 +89,8 @@ interface ApiJob {
     model_metadata?: {
       requested: boolean
       provider: string
+      model_id?: string | null
+      version?: string | null
       architecture?: string | null
       checkpoint?: string | null
       checkpoint_sha256?: string | null
@@ -145,6 +149,8 @@ function mapJob(job: ApiJob): VectorizationJob {
             ? {
                 requested: job.quality.model_metadata.requested,
                 provider: job.quality.model_metadata.provider,
+                modelId: job.quality.model_metadata.model_id,
+                version: job.quality.model_metadata.version,
                 architecture: job.quality.model_metadata.architecture,
                 checkpoint: job.quality.model_metadata.checkpoint,
                 checkpointSha256: job.quality.model_metadata.checkpoint_sha256,

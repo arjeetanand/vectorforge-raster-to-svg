@@ -32,6 +32,8 @@ class SvgComplexity(BaseModel):
 class ModelMetadata(BaseModel):
     requested: bool
     provider: str
+    model_id: str | None = None
+    version: str | None = None
     architecture: str | None = None
     checkpoint: str | None = None
     checkpoint_sha256: str | None = None

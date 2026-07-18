@@ -10,3 +10,10 @@ The service accepts PNG, JPEG, and WebP only, with configurable byte/pixel limit
 `quality` is nullable for queued, processing, failed, and historical jobs. See
 [quality-report documentation](quality.md) for field definitions and correct
 interpretation.
+
+When `quality.model_metadata` is present, `model_id` and `version` identify the
+reviewed registry entry, while `checkpoint_sha256` identifies the exact local
+file used. Operator-configured fine-tuned checkpoints are labelled as local
+operator checkpoints rather than being presented as the public TorchVision
+weight. These fields are provenance metadata; they do not claim segmentation
+accuracy.

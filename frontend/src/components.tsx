@@ -152,6 +152,7 @@ export function QualityPanel({ quality, modelUsed }: { quality?: QualityReport; 
       </dl>
       {quality.inputKind ? <p className="quality-kind">Input assessment: {quality.inputKind}</p> : null}
       {modelUsed ? <p className="quality-model">Foreground mask: {modelUsed}</p> : null}
+      {quality.modelMetadata?.modelId ? <p className="quality-model">Model: {quality.modelMetadata.modelId}{quality.modelMetadata.version ? ` · ${quality.modelMetadata.version}` : ''}</p> : null}
       {quality.modelMetadata?.fallbackReason ? <p className="quality-model">Model fallback: {quality.modelMetadata.fallbackReason}</p> : null}
       {quality.warnings.length ? <ul className="quality-warnings">{quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
     </section>

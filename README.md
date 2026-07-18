@@ -131,6 +131,11 @@ the model was requested, and the fallback reason. See
 guidance. Fine-tuning requires a user-provided image/mask dataset and measured
 validation metrics; VectorForge does not train from scratch.
 
+Before enabling a checkpoint, use the reproducible
+[model-vs-OpenCV evaluation guide](docs/model-evaluation.md). Its overlap
+numbers are agreement indicators, not accuracy claims; annotated held-out masks
+are required for a real segmentation evaluation.
+
 ## REST API
 
 Submit a job with multipart form data:
@@ -214,6 +219,17 @@ Network tab and confirm the request is `/api/v1/vectorizations` through port
 docker compose up -d --build frontend
 ```
 
+If `evaluate_segmentation.py` reports `ModuleNotFoundError: numpy`, do not use
+the macOS system `pip3` with the project `python`. They may point to different
+Python installations. Create/use the documented Python 3.12 environment and
+invoke its interpreter explicitly:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+PYTHONPATH=backend .venv/bin/python backend/scripts/evaluate_segmentation.py --format markdown
+```
+
 For a broken local Vite install (`Cannot find module ... vite/dist/...`):
 
 ```bash
@@ -221,6 +237,17 @@ cd frontend
 npm ci
 npm run dev
 ```
+
+If `python backend/scripts/evaluate_segmentation.py` reports
+`ModuleNotFoundError: No module named 'numpy'`, use the project environment:
+
+```bash
+.venv/bin/python backend/scripts/evaluate_segmentation.py --format markdown
+```
+
+Do not mix macOS `pip3` with another `python`: check both with `python --version`
+and `pip3 --version`, or install dependencies through the same interpreter:
+`.venv/bin/python -m pip install -r backend/requirements.txt`.
 
 Do not commit model weights, uploaded images, credentials, or generated
 artifacts. Every material code/configuration/test/documentation change and
