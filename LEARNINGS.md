@@ -757,3 +757,106 @@ This append-only log records every material implementation, configuration, test,
 - Resolution: rewrote the README to document the product purpose, architecture, raster-to-SVG stages, Docker and local development, UI behavior, segmentation, pretrained model policy, REST polling/idempotency, quality diagnostics, tests, troubleshooting, limitations, roadmap, and licensing.
 - Verification: confirmed all referenced documentation paths exist and reviewed commands against the current Compose services and scripts.
 - Prevention: update README and the relevant focused document together whenever a user-visible workflow, API contract, supported input, or deployment command changes.
+
+## 2026-07-18 — Change — Phase 2 fine-tuning provenance guardrails
+
+- **Workstream:** pretrained-model enhancement / documentation
+- **Files:** `backend/scripts/train_segmentation.py`, `backend/scripts/download_segmentation_model.py`, `docs/model.md`
+- **Why:** The fine-tuning command previously initialized DeepLab with `weights=None` and therefore could train from scratch despite claiming to fine-tune. The download command also exposed an expected-digest option that could be mistaken for a way to acquire a custom fine-tuned checkpoint, even though it always downloads the public TorchVision file.
+- **Resolution:** Fine-tuning now requires an existing local base checkpoint, verifies its SHA-256 (defaulting to the pinned public digest), loads that state dictionary before optimization, and records architecture/base-digest/validation metadata in the saved checkpoint. The downloader is explicitly public-checkpoint-only, while custom checkpoints must be provided locally. Updated model documentation with dataset layout, reproducible commands, provenance requirements, licensing reminders, and deployment environment variables.
+- **Verification:** Script help works without network access; Ruff check/format and `git diff --check` pass for both scripts. Existing model provider tests remain deterministic and do not load weights.
+- **Prevention:** Keep model acquisition, fine-tuning, and inference as separate explicit stages; require a verified local base artifact before any training command can run.
+
+## 2026-07-18 — Error E-049 — script lint caught path-bootstrap imports
+
+- **Workstream:** pretrained-model enhancement / validation
+- **Context:** Ruff check of the two executable model scripts after adding the local checkpoint flow.
+- **Cause:** The scripts intentionally add `backend/` to `sys.path` before importing the local `app` package, which Ruff reports as a module-level import-order violation.
+- **Resolution:** Retained the explicit path bootstrap needed for the documented direct script invocation and marked only those imports with the narrow `E402` exemption; no broad lint disable was added.
+- **Verification:** Ruff check and format check pass for both scripts, and `--help` runs successfully for each script.
+- **Prevention:** Keep executable scripts self-contained for documented working directories and scope any import-order exemptions to the single bootstrap import.
+
+## 2026-07-18 — Change — reproducible segmentation comparison harness
+
+- **Workstream:** Phase 2 pretrained-model evaluation
+- **Files:** `backend/scripts/evaluate_segmentation.py`, `backend/tests/test_segmentation_evaluation.py`, `docs/model-evaluation.md`
+- **Why:** Compare an explicitly provisioned foreground model with the deterministic OpenCV fallback across the supplied fixtures without implying model accuracy or downloading weights during evaluation.
+- **Resolution:** Added a JSON/Markdown CLI with worker-aligned decode limits, safe skipped-fixture reasons, alpha-precedence reporting, deterministic IoU/Dice/disagreement/coverage-delta indicators, and stable model-failure handling. Added injectable-provider tests and documented the ground-truth limitation and review workflow.
+- **Verification:** Focused evaluation tests: 4 passed; complete backend suite: 32 passed with 2 existing SQLAlchemy deprecation warnings; CLI markdown smoke scanned 10 fixtures (8 decodable, 2 safely skipped) without a model; Ruff, format, and `git diff --check` pass.
+- **Prevention:** Treat pairwise mask agreement as a review signal only; require representative held-out image/mask labels and measured validation metrics before making any accuracy claim or enabling a fine-tuned checkpoint.
+
+## 2026-07-18 — Change — evaluation provenance in comparison reports
+
+- **Workstream:** Phase 2 pretrained-model evaluation
+- **Files:** `backend/scripts/evaluate_segmentation.py`
+- **Why:** A comparison report must identify the reviewed registry model even when its local checkpoint is unavailable; otherwise a fallback result can be mistaken for a model run.
+- **Resolution:** Added safe model ID, architecture, checkpoint name, and pinned digest to the report summary when a registered model is requested, while keeping fixture-level fallback statuses compact and path-free.
+- **Verification:** Missing-checkpoint CLI smoke reports `model-unavailable` with the registered provenance; focused evaluation tests and Ruff checks pass.
+- **Prevention:** Keep model provenance attached to every comparison invocation and distinguish not-requested, unavailable, runtime-failed, and ready states.
+
+## 2026-07-18 — Change — evaluator provider default
+
+- **Workstream:** Phase 2 pretrained-model evaluation
+- **Files:** `backend/scripts/evaluate_segmentation.py`
+- **Why:** Programmatic callers passing an injected deterministic provider without an explicit status could accidentally suppress model comparisons.
+- **Resolution:** Infer a `ready` status when a provider is supplied and preserve the explicit `not-requested` default when no provider is present.
+- **Verification:** Focused evaluation tests (4) and Ruff checks pass.
+- **Prevention:** Keep injectable evaluation APIs safe by deriving defaults from supplied dependencies while allowing explicit unavailable/failure states.
+
+## E-050 — 2026-07-18 — Phase 2 model registry and evaluation
+- Workstream: pretrained-model enhancement
+- Context/files: `backend/app/ml/manifest.py`, `backend/app/ml/segmentation.py`, `backend/app/pipeline/vectorize.py`, `backend/scripts/evaluate_segmentation.py`, `backend/tests/test_ml_segmentation.py`, `backend/tests/test_segmentation_evaluation.py`, `docs/model-evaluation.md`, API/frontend model metadata files.
+- Cause: the optional model had no stable registry identity or reproducible comparison workflow, and a locally supplied fine-tuned checkpoint could be displayed with the public checkpoint name.
+- Resolution: added an immutable reviewed model registry with stable ID/version/provenance, rejected unregistered model selections, added a no-network model-vs-OpenCV agreement CLI with safe fixture reports and explicit non-accuracy semantics, and labelled operator-configured checkpoints separately in API/UI metadata.
+- Verification: backend tests 32 passed with two existing SQLAlchemy deprecation warnings; Ruff check and format check passed; frontend lint, 15 tests, and production build passed; evaluation CLI smoke ran without model weights or network.
+- Prevention: require a reviewed registry manifest and checksum for every model, keep OpenCV as the default, and require annotated held-out masks before making an accuracy claim or promoting a fine-tuned checkpoint.
+
+## 2026-07-18 — Change — reviewed segmentation model registry and provenance
+
+- **Workstream:** Phase 2 pretrained-model enhancement / model registry
+- **Files:** `backend/app/ml/{manifest.py,segmentation.py,__init__.py}`, `backend/app/{pipeline/vectorize.py,schemas.py}`, `frontend/src/api.ts`, `backend/tests/test_ml_segmentation.py`
+- **Why:** A single hard-coded checkpoint made it difficult to distinguish reviewed model identity/version from an operator-provided checkpoint and allowed direct provider construction without an explicit digest pin.
+- **Resolution:** Added an immutable reviewed-model registry with stable ID, version, provider, provenance URL, and SHA-256; model selection now rejects unregistered IDs without I/O, direct provider construction defaults to the pinned digest, and API/UI metadata carries model ID/version. Operator-configured digests are labeled as such rather than presented as the public TorchVision weight.
+- **Verification:** Focused model tests (7 passed), full backend suite (31 passed), Ruff check/format passed. No network or model weights were used.
+- **Prevention:** Add new checkpoints only through a reviewed manifest entry, require a complete digest, and preserve safe fallback reasons without recording paths or raw loader errors.
+
+## 2026-07-18 — Change — retain requested checkpoint identity on fallback
+
+- **Workstream:** Phase 2 pretrained-model enhancement / provenance
+- **Files:** `backend/app/pipeline/vectorize.py`, `backend/tests/test_ml_segmentation.py`, `docs/model.md`
+- **Why:** A fallback result previously discarded the reviewed model name, architecture, and digest, making it unclear which configured model was unavailable or failed.
+- **Resolution:** Fallback metadata now retains the requested registry identity and public checkpoint digest, while labeling non-public configured digests as an operator checkpoint. Local paths and raw loader errors remain excluded.
+- **Verification:** Focused model tests (8 passed), the full backend suite (32 passed), and the model documentation now matches the response fields.
+- **Prevention:** Keep metadata descriptive for both successful and fallback paths; test public and operator-configured provenance separately.
+
+## E-051 — 2026-07-18 — Model registry documentation and UI provenance
+- Workstream: Phase 2 integration review
+- Context/files: `docs/model.md`, `backend/app/pipeline/vectorize.py`, `frontend/src/components.tsx`, `frontend/src/api.test.ts`.
+- Cause: the new registry identity and operator-checkpoint distinction were available in the contract but were not clearly documented or visible in the completed-job quality panel.
+- Resolution: documented the reviewed model ID/version policy, exposed the model ID/version in the quality panel, and added a regression test proving custom checkpoint digests are not labelled as the public weight.
+- Verification: full backend and frontend suites, Ruff, formatting, and production build passed.
+- Prevention: whenever provenance fields change, update the API mapping, user-facing diagnostics, focused model docs, and a regression test together.
+
+## E-052 — 2026-07-18 — API provenance contract documentation
+- Workstream: Phase 2 documentation
+- Context/files: `docs/api.md`; model ID/version and operator-checkpoint provenance were added to the response contract but were not described in the focused API guide.
+- Cause: the schema and frontend mapping changed before the API prose was updated.
+- Resolution: documented how registry identity, version, exact digest, and operator-configured checkpoint labels should be interpreted, including the non-accuracy boundary.
+- Verification: reviewed the prose against `ModelMetadata` and the model-evaluation report; `git diff --check` passed.
+- Prevention: update focused API documentation whenever response schema fields are added or their semantics change.
+
+## E-053 — 2026-07-18 — Python and pip interpreter mismatch
+- Workstream: developer troubleshooting
+- Context/files: running `backend/scripts/evaluate_segmentation.py` after `pip3 install numpy`.
+- Cause: macOS `pip3` belonged to Python 3.9, while the `python` command used Python 3.12; NumPy was installed for the wrong interpreter.
+- Resolution: run the evaluator with `.venv/bin/python`, which already contains the pinned backend dependencies, or install using the same interpreter with `.venv/bin/python -m pip`.
+- Verification: the project virtual environment imports NumPy successfully and the evaluation CLI smoke test completes without network access.
+- Prevention: always use the project interpreter for scripts and dependency installation; compare `python --version` with `pip3 --version` before troubleshooting imports.
+
+## E-053 — 2026-07-18 — Evaluation command used a different Python environment
+- Workstream: user-reported evaluation setup
+- Context/files: `docs/model-evaluation.md`, `README.md`; the user ran `pip3 install numpy` followed by `python backend/scripts/evaluate_segmentation.py` and received `ModuleNotFoundError: numpy`.
+- Cause: `pip3` was the macOS Python 3.9 installer while `python` was the project/system Python 3.12, so NumPy was installed into a different site-packages directory.
+- Resolution: documented explicit `.venv/bin/python` invocation and matching package installation; no application code was changed.
+- Verification: the project Python environment imports NumPy and the evaluation CLI smoke test runs successfully; documentation commands now use the same interpreter for installation and execution.
+- Prevention: always install with `python -m pip` from the exact interpreter used to run project commands; prefer the repository virtual environment or Docker Compose.

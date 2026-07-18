@@ -27,7 +27,7 @@ describe('createVectorization', () => {
         removed_component_count: 3,
         visual_similarity: 0.92,
         svg_complexity: { command_count: 16, path_data_characters: 240, level: 'low' },
-        model_metadata: { requested: true, provider: 'opencv', fallback_reason: 'model-unavailable' },
+        model_metadata: { requested: true, provider: 'opencv', model_id: 'torchvision.deeplabv3-mobilenet-v3-large', version: 'COCO_WITH_VOC_LABELS_V1', fallback_reason: 'model-unavailable' },
       },
     }), { status: 202, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
@@ -47,7 +47,7 @@ describe('createVectorization', () => {
       pathCount: 4,
       visualSimilarity: 0.92,
       svgComplexity: { level: 'low' },
-      modelMetadata: { provider: 'opencv', fallbackReason: 'model-unavailable' },
+      modelMetadata: { provider: 'opencv', modelId: 'torchvision.deeplabv3-mobilenet-v3-large', version: 'COCO_WITH_VOC_LABELS_V1', fallbackReason: 'model-unavailable' },
     })
   })
 })
