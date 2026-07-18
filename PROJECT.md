@@ -50,8 +50,13 @@ Phase 1 is reliability:
 - Deterministic fixture and regression tests
 - Clear user documentation and safe errors
 
-Do not add batch ZIPs, webhooks, SDKs, Figma/Adobe integrations, cloud hosting,
-authentication, billing, or enterprise deployment work unless the user asks.
+Phase 3 batch workflows are now implemented: bounded repeated-image/ZIP
+uploads, per-file status and retry, reviewed presets, and safe result/report
+exports. Keep these workflows within the existing API, worker, and artifact
+contracts. The next adoption work may add benchmark runs, a small CLI/client,
+signed or expiring artifact URLs, and webhooks. Do not add Figma/Adobe
+integrations, cloud hosting, authentication, billing, or enterprise deployment
+guides unless the user asks.
 
 ## Quality rules
 

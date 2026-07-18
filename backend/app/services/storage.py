@@ -31,6 +31,14 @@ async def persist_upload(
     """Validate decoded pixels and store the unmodified source below its UUID directory."""
     settings = settings or get_settings()
     raw = await upload.read(settings.max_upload_bytes + 1)
+    return persist_upload_bytes(raw, upload.filename or "upload", job_id, settings)
+
+
+def persist_upload_bytes(
+    raw: bytes, filename: str, job_id: str, settings: Settings | None = None
+) -> dict:
+    """Validate and persist an already-buffered image (used by batch ZIPs)."""
+    settings = settings or get_settings()
     if not raw:
         raise _invalid_upload("The upload is empty.")
     if len(raw) > settings.max_upload_bytes:
@@ -62,7 +70,7 @@ async def persist_upload(
     source_path.write_bytes(raw)
     return {
         "artifact_dir": str(artifact_dir),
-        "filename": Path(upload.filename or "upload").name[:255],
+        "filename": Path(filename or "upload").name[:255],
         "mime_type": ALLOWED_FORMATS[image_format],
         "sha256": hashlib.sha256(raw).hexdigest(),
         "width": width,

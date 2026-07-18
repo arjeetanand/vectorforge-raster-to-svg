@@ -253,15 +253,31 @@ Do not commit model weights, uploaded images, credentials, or generated
 artifacts. Every material code/configuration/test/documentation change and
 every real error is recorded in [LEARNINGS.md](LEARNINGS.md).
 
+## Phase 3 batch workflows
+
+The workbench now has a **Batch convert** mode for team workflows. Select up to
+100 PNG/JPEG/WebP files or one ZIP archive (50 MB maximum), choose a reviewed
+preset or manual options, and start one asynchronous batch. Each file has its
+own queued/processing/completed/failed state. Only failed files can be retried,
+and completed batches expose individual SVG downloads plus a results ZIP,
+CSV report, and JSON report.
+
+The batch API preserves idempotency using a content/options fingerprint, rejects
+unsafe ZIP paths, keeps the existing single-image endpoint unchanged, and uses
+the same Celery/OpenCV/TorchVision pipeline for every file. Presets are plain
+validated options, not separate algorithms.
+
+See [batch API documentation](docs/api.md) and the reusable implementation in
+`backend/app/services/{presets,batch_artifacts}.py`.
+
 ## Scope and roadmap
 
-Current work focuses on Phase 1 reliability: quality scoring, unsupported-input
-detection, explainable model metadata, idempotency, retry-safe jobs, fixtures,
-and clear diagnostics. The planned next phase evaluates additional compatible
-pretrained models without downloading at inference time. Batch ZIP workflows,
-webhooks, SDKs, Figma/Adobe integrations, cloud hosting, authentication,
-billing, and enterprise deployment guides are intentionally out of scope for
-now.
+Completed phases now include Phase 1 reliability, Phase 2 pretrained-model
+provenance/evaluation, and Phase 3 batch workflows. The next planned work is
+operational polish and adoption: benchmark runs, a small CLI/client, signed or
+expiring artifact URLs, and webhook support. Figma/Adobe integrations, cloud
+hosting, authentication, billing, and enterprise deployment guides remain out
+of scope for now.
 
 See [PROJECT.md](PROJECT.md), [AGENTS.md](AGENTS.md),
 [docs/architecture.md](docs/architecture.md), [docs/quality.md](docs/quality.md),

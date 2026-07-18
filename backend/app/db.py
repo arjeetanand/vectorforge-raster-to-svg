@@ -42,7 +42,8 @@ def migrate_vectorizations_schema(database_engine: Engine) -> None:
     """
 
     inspector = inspect(database_engine)
-    if "vectorizations" not in inspector.get_table_names():
+    tables = set(inspector.get_table_names())
+    if "vectorizations" not in tables:
         return
 
     column_names = {
@@ -92,3 +93,38 @@ def migrate_vectorizations_schema(database_engine: Engine) -> None:
                 "ON vectorizations (idempotency_key)"
             )
         )
+        columns = {column["name"] for column in inspector.get_columns("vectorizations")}
+        if "batch_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE vectorizations ADD COLUMN batch_id VARCHAR(36)")
+            )
+        if "batch_index" not in columns:
+            connection.execute(
+                text("ALTER TABLE vectorizations ADD COLUMN batch_index INTEGER")
+            )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_vectorizations_batch_id ON vectorizations (batch_id)"
+            )
+        )
+
+        if "vectorization_batches" in tables:
+            batch_columns = {
+                column["name"]
+                for column in inspect(database_engine).get_columns(
+                    "vectorization_batches"
+                )
+            }
+            if "source_fingerprint" not in batch_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE vectorization_batches ADD COLUMN source_fingerprint VARCHAR(64)"
+                    )
+                )
+
+    # Batch tables are additive and intentionally created for upgrades from
+    # the single-image schema.  The ORM handles fresh installations.
+    if "vectorization_batches" not in tables:
+        from app.models import VectorizationBatch
+
+        VectorizationBatch.__table__.create(bind=database_engine, checkfirst=True)

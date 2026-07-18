@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import shutil
 import uuid
+import hashlib
+import io
+import zipfile
+from pathlib import Path
 
 from celery.exceptions import OperationalError
 from fastapi import (
@@ -15,20 +19,24 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import JobStatus, Vectorization
+from app.models import JobStatus, Vectorization, VectorizationBatch
 from app.schemas import (
     ArtifactUrls,
     QualityReport,
     VectorizationOptions,
     VectorizationResponse,
+    BatchVectorizationResponse,
 )
-from app.services.storage import artifact_path, persist_upload
+from app.services.storage import artifact_path, persist_upload, persist_upload_bytes
+from app.services.batch_artifacts import create_batch_zip, report_bytes
+from app.services.presets import list_presets
+from app.core.config import get_settings
 from app.tasks import queue_vectorization
 
 router = APIRouter(prefix="/api/v1")
@@ -99,6 +107,45 @@ def _idempotency_conflict() -> HTTPException:
             "This Idempotency-Key was already used for a different source image "
             "or vectorization settings."
         ),
+    )
+
+
+def _batch_response(
+    request: Request, batch: VectorizationBatch, db: Session
+) -> BatchVectorizationResponse:
+    items = list(
+        db.scalars(
+            select(Vectorization)
+            .where(Vectorization.batch_id == batch.id)
+            .order_by(Vectorization.batch_index)
+        )
+    )
+    completed = sum(item.status == JobStatus.COMPLETED for item in items)
+    failed = sum(item.status == JobStatus.FAILED for item in items)
+    active = sum(
+        item.status in (JobStatus.QUEUED, JobStatus.PROCESSING) for item in items
+    )
+    if active:
+        batch.status = (
+            "processing"
+            if any(item.status == JobStatus.PROCESSING for item in items)
+            else "queued"
+        )
+    elif failed and completed:
+        batch.status = "partial"
+    elif failed:
+        batch.status = "failed"
+    else:
+        batch.status = "completed"
+    return BatchVectorizationResponse(
+        id=batch.id,
+        status=batch.status,
+        total_count=len(items),
+        completed_count=completed,
+        failed_count=failed,
+        items=[_response(request, item) for item in items],
+        created_at=batch.created_at,
+        updated_at=batch.updated_at,
     )
 
 
@@ -196,6 +243,279 @@ async def create_vectorization(
         db.commit()
         raise HTTPException(status_code=503, detail=job.error_detail) from exc
     return _response(request, job)
+
+
+@router.get("/presets")
+def get_presets() -> list[dict]:
+    return list_presets()
+
+
+@router.post(
+    "/vectorization-batches",
+    response_model=BatchVectorizationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_vectorization_batch(
+    request: Request,
+    images: list[UploadFile] = File(default=[]),
+    archive: UploadFile | None = File(default=None),
+    mode: str = Form("line-art"),
+    color_count: int = Form(6),
+    smoothing: float = Form(0.5),
+    min_component_area: int = Form(24),
+    use_segmentation_model: bool = Form(False),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+) -> BatchVectorizationResponse:
+    """Create up to 100 independent jobs from multipart images or one ZIP archive."""
+    try:
+        options = VectorizationOptions(
+            mode=mode,
+            color_count=color_count,
+            smoothing=smoothing,
+            min_component_area=min_component_area,
+            use_segmentation_model=use_segmentation_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if idempotency_key and (not idempotency_key.strip() or len(idempotency_key) > 255):
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key must be 255 characters or fewer and not blank.",
+        )
+    if archive is not None and images:
+        raise HTTPException(
+            status_code=422, detail="Submit images or an archive, not both."
+        )
+    entries: list[tuple[str, bytes]] = []
+    if archive is not None:
+        raw_archive = await archive.read(50 * 1024 * 1024 + 1)
+        if len(raw_archive) > 50 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="Batch archives are limited to 50 MB."
+            )
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw_archive)) as bundle:
+                for info in bundle.infolist():
+                    if info.is_dir() or info.filename.startswith("__MACOSX/"):
+                        continue
+                    safe_name = info.filename.replace("\\", "/")
+                    if safe_name.startswith("/") or ".." in safe_name.split("/"):
+                        raise ValueError("archive contains an unsafe path")
+                    entries.append((safe_name, bundle.read(info)))
+        except (zipfile.BadZipFile, OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422, detail="Archive must be a valid, safe ZIP file."
+            ) from exc
+    else:
+        entries = [
+            (upload.filename or "upload", await upload.read()) for upload in images
+        ]
+    if not entries:
+        raise HTTPException(
+            status_code=422, detail="Add at least one image or ZIP archive."
+        )
+    if len(entries) > 100:
+        raise HTTPException(
+            status_code=413, detail="A batch may contain at most 100 images."
+        )
+    fingerprint = hashlib.sha256()
+    for name, raw in entries:
+        fingerprint.update(name.encode("utf-8", "replace"))
+        fingerprint.update(raw)
+    fingerprint.update(str(options.model_dump(mode="json")).encode())
+    if idempotency_key:
+        existing_batch = db.scalar(
+            select(VectorizationBatch).where(
+                VectorizationBatch.idempotency_key == idempotency_key
+            )
+        )
+        if existing_batch:
+            if (
+                existing_batch.total_count == len(entries)
+                and existing_batch.source_fingerprint == fingerprint.hexdigest()
+            ):
+                return _batch_response(request, existing_batch, db)
+            raise _idempotency_conflict()
+    batch = VectorizationBatch(
+        id=str(uuid.uuid4()),
+        idempotency_key=idempotency_key,
+        source_fingerprint=fingerprint.hexdigest(),
+        total_count=len(entries),
+        status="queued",
+    )
+    db.add(batch)
+    staged: list[str] = []
+    try:
+        for index, (name, raw) in enumerate(entries):
+            job_id = str(uuid.uuid4())
+            stored = persist_upload_bytes(raw, name, job_id)
+            staged.append(stored["artifact_dir"])
+            db.add(
+                Vectorization(
+                    id=job_id,
+                    status=JobStatus.QUEUED,
+                    source_filename=stored["filename"],
+                    source_mime_type=stored["mime_type"],
+                    source_sha256=stored["sha256"],
+                    options=options.model_dump(),
+                    artifact_dir=stored["artifact_dir"],
+                    source_width=stored["width"],
+                    source_height=stored["height"],
+                    batch_id=batch.id,
+                    batch_index=index,
+                )
+            )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        for path in staged:
+            _discard_staged_upload(path)
+        if idempotency_key:
+            existing_batch = db.scalar(
+                select(VectorizationBatch).where(
+                    VectorizationBatch.idempotency_key == idempotency_key
+                )
+            )
+            if (
+                existing_batch
+                and existing_batch.source_fingerprint == fingerprint.hexdigest()
+            ):
+                return _batch_response(request, existing_batch, db)
+            raise _idempotency_conflict() from exc
+        raise HTTPException(
+            status_code=500, detail="Vectorization batch could not be created."
+        ) from exc
+    except Exception:
+        db.rollback()
+        for path in staged:
+            _discard_staged_upload(path)
+        raise
+    items = list(
+        db.scalars(
+            select(Vectorization)
+            .where(Vectorization.batch_id == batch.id)
+            .order_by(Vectorization.batch_index)
+        )
+    )
+    try:
+        for item in items:
+            queue_vectorization.delay(item.id)
+    except OperationalError as exc:
+        # Jobs remain durable and can be retried after Redis recovers.
+        raise HTTPException(
+            status_code=503, detail="The processing queue is temporarily unavailable."
+        ) from exc
+    return _batch_response(request, batch, db)
+
+
+@router.get(
+    "/vectorization-batches/{batch_id}", response_model=BatchVectorizationResponse
+)
+def get_vectorization_batch(
+    batch_id: str, request: Request, db: Session = Depends(get_db)
+) -> BatchVectorizationResponse:
+    batch = db.get(VectorizationBatch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Vectorization batch not found.")
+    return _batch_response(request, batch, db)
+
+
+@router.post(
+    "/vectorization-batches/{batch_id}/retry-failed",
+    response_model=BatchVectorizationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_failed_batch(
+    batch_id: str, request: Request, db: Session = Depends(get_db)
+) -> BatchVectorizationResponse:
+    batch = db.get(VectorizationBatch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Vectorization batch not found.")
+    failed = list(
+        db.scalars(
+            select(Vectorization).where(
+                Vectorization.batch_id == batch.id,
+                Vectorization.status == JobStatus.FAILED,
+            )
+        )
+    )
+    if not failed:
+        return _batch_response(request, batch, db)
+    for item in failed:
+        item.status = JobStatus.QUEUED
+        item.error_code = None
+        item.error_detail = None
+        item.completed_at = None
+    batch.status = "queued"
+    db.commit()
+    for item in failed:
+        queue_vectorization.delay(item.id)
+    return _batch_response(request, batch, db)
+
+
+@router.get("/vectorization-batches/{batch_id}/artifacts/{artifact_name}")
+def get_batch_artifact(
+    batch_id: str, artifact_name: str, db: Session = Depends(get_db)
+):
+    batch = db.get(VectorizationBatch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Vectorization batch not found.")
+    items = list(
+        db.scalars(
+            select(Vectorization)
+            .where(Vectorization.batch_id == batch.id)
+            .order_by(Vectorization.batch_index)
+        )
+    )
+    if any(item.status in (JobStatus.QUEUED, JobStatus.PROCESSING) for item in items):
+        raise HTTPException(
+            status_code=409,
+            detail="Batch artifacts are available after processing completes.",
+        )
+    entries = []
+    for item in items:
+        svg = Path(item.artifact_dir) / "vector.svg"
+        entries.append(
+            {
+                "file": item.source_filename,
+                "status": item.status.value,
+                "id": item.id,
+                "quality": item.diagnostics,
+                "model_used": item.model_used,
+                "error_code": item.error_code,
+                "svg_path": str(svg) if svg.is_file() else None,
+            }
+        )
+    batch_dir = get_settings().artifact_root / batch.id
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    if artifact_name in {"report.json", "report.csv"}:
+        json_bytes, csv_bytes = report_bytes(entries)
+        if artifact_name == "report.json":
+            return Response(
+                json_bytes,
+                media_type="application/json",
+                headers={"Content-Disposition": 'attachment; filename="report.json"'},
+            )
+        return Response(
+            csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="report.csv"'},
+        )
+    if artifact_name == "results.zip":
+        archive = create_batch_zip(
+            get_settings().artifact_root,
+            entries,
+            archive_name=f"{batch.id}-results.zip",
+        )
+        destination = batch_dir / "results.zip"
+        archive.replace(destination)
+        return FileResponse(
+            destination,
+            media_type="application/zip",
+            filename="vectorforge-results.zip",
+        )
+    raise HTTPException(status_code=404, detail="Unknown batch artifact.")
 
 
 @router.get("/vectorizations/{job_id}", response_model=VectorizationResponse)

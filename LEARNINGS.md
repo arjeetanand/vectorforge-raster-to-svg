@@ -2,6 +2,42 @@
 
 This append-only log records every material implementation, configuration, test, and documentation change, plus every real build, test, or runtime error. Entries exclude credentials, raw uploads, and unredacted stack traces.
 
+## 2026-07-18 — Change — Phase 3 batch orchestration API
+
+- **Workstream:** Batch API / Celery orchestration
+- **Files:** `backend/app/api/routes.py`, `backend/app/models.py`, `backend/app/schemas.py`, `backend/app/db.py`, `backend/app/services/storage.py`, `backend/tests/test_api_contracts.py`
+- **Why:** Enable bounded multi-image and ZIP submissions while preserving the existing single-image contract.
+- **Resolution:** Added batch records with additive schema migration, per-item `VectorizationResponse` status, safe ZIP path checks, 100-file/50 MB bounds, retry-failed endpoint, and source/options fingerprint validation for idempotent replay.
+- **Verification:** API contract tests pass (7 passed); Python compilation passes. Tests use synthetic bytes and monkeypatched storage/queue only.
+- **Prevention:** Batch replay compares a content/options fingerprint rather than only item count; ZIP entries are never extracted outside UUID-scoped artifact directories.
+
+## 2026-07-18 — Change — Phase 3 presets and batch exports
+
+- **Workstream:** Batch API / artifact delivery
+- **Files:** `backend/app/api/routes.py`, `backend/app/services/{presets,batch_artifacts}.py`, `backend/tests/test_batch_artifacts.py`
+- **Why:** Make completed batches actionable for team workflows without changing the single-image API.
+- **Resolution:** Added `GET /api/v1/presets` and on-demand batch `report.json`, `report.csv`, and `results.zip` artifacts. Reports contain sanitized filenames and safe quality/status metadata; ZIPs include only successful SVGs under the configured artifact root.
+- **Verification:** Preset/report/ZIP tests pass (3 passed); API contract tests and Ruff checks pass.
+- **Prevention:** Export generation refuses in-progress batches, sanitizes archive member names, and never stores raw exception details or uploads in report metadata.
+
+## 2026-07-18 — Change — Phase 3 presets and batch artifacts
+
+- **Workstream:** Batch artifact/report utilities
+- **Files:** `backend/app/services/presets.py`, `backend/app/services/batch_artifacts.py`, `backend/tests/test_batch_artifacts.py`
+- **Why:** Provide deterministic conversion presets and safe ZIP/CSV/JSON outputs for the approved batch workflow without coupling the utilities to HTTP or database code.
+- **Resolution:** Added four named presets that expand to normal vectorization options; reports flatten quality metadata; ZIP creation sanitizes names, includes reports, skips failed/missing files, and refuses SVG paths outside the batch root.
+- **Verification:** `PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_batch_artifacts.py -q` — 3 passed.
+- **Prevention:** Keep report generation pure and validate archive member paths before integrating it with batch routes.
+
+## 2026-07-18 — Error E-046 — test imported preset helper from wrong module
+
+- **Workstream:** Batch artifact/report utilities
+- **Context:** Initial collection of `backend/tests/test_batch_artifacts.py`.
+- **Cause:** The test imported `preset_options` from `batch_artifacts` although it belongs to `presets`.
+- **Resolution:** Corrected the import and reran the focused suite.
+- **Verification:** 3 tests passed.
+- **Prevention:** Keep tests aligned with the module ownership boundary and run collection before broader validation.
+
 ## 2026-07-18 — Change — project foundation
 
 - **Workstream:** Lead / documentation governance
@@ -860,3 +896,38 @@ This append-only log records every material implementation, configuration, test,
 - Resolution: documented explicit `.venv/bin/python` invocation and matching package installation; no application code was changed.
 - Verification: the project Python environment imports NumPy and the evaluation CLI smoke test runs successfully; documentation commands now use the same interpreter for installation and execution.
 - Prevention: always install with `python -m pip` from the exact interpreter used to run project commands; prefer the repository virtual environment or Docker Compose.
+
+## 2026-07-18 — Change — batch conversion workbench
+
+- **Workstream:** Phase 3 batch UI
+- **Files:** `frontend/src/{App.tsx,api.ts,batch.tsx,components.tsx,styles.css,api.test.ts}`
+- **Why:** The backend now accepts repeated images or a ZIP archive as an asynchronous batch, but the workbench only exposed the single-image flow and gave no per-file progress, retry, preset, or report-download controls.
+- **Resolution:** Added an accessible Batch convert workspace toggle without changing the single-image screen. The new UI selects up to 100 images or one 50 MB ZIP, loads server presets, serializes the exact batch options/idempotency contract, polls queued/processing/partial/failed states with cleanup and retry-safe submission, retries only failed files, shows per-file errors and SVG links, and exposes the completed results ZIP/CSV/JSON artifact URLs. Added typed API mapping for batch jobs, presets, polling, retry, and artifact URLs.
+- **Verification:** Frontend lint passed; Vitest passed 17 tests; TypeScript/Vite production build passed. Tests cover repeated multipart image serialization, per-item status/error mapping, and preset option conversion. No network or browser upload was required for deterministic tests.
+- **Prevention:** Keep batch UI calls aligned with the documented API contract; retain idempotency keys across transient submission retries and stop polling through effect cleanup/abort signals.
+
+## 2026-07-18 — Change — repeatable batch file selection
+
+- **Workstream:** Phase 3 batch UI
+- **Files:** `frontend/src/batch.tsx`
+- **Why:** Browsers suppress a change event when a user selects the same file again, which made replacing a rejected batch with the same archive or image set confusing.
+- **Resolution:** Clear both batch file-input values after each selection so the same files can be reselected without a page refresh; the existing validation and state reset paths remain unchanged.
+- **Verification:** Frontend lint, 17 Vitest tests, and production build pass.
+- **Prevention:** Reset file-input values after handling controlled upload changes in every upload surface.
+
+## E-054 — 2026-07-18 — Phase 3 documentation and formatting integration
+- Workstream: Phase 3 integration review
+- Context/files: `README.md`, `docs/api.md`, and new batch utility/UI files.
+- Cause: the implementation was complete but the root guide and API reference still described only single-image conversion; the first formatting gate also found three newly added batch files not formatted with Ruff.
+- Resolution: documented batch upload limits, per-file polling/retry, presets, reports, ZIP exports, and new routes; formatted the batch utilities/tests with Ruff.
+- Verification: backend tests 37 passed; frontend tests 17 passed; frontend lint/build passed; Ruff check and format check passed; `git diff --check` passed.
+- Prevention: run documentation review and repository-wide formatting after parallel workstreams are integrated, not only focused tests.
+
+## 2026-07-18 — Change — project guide synchronized with Phase 3
+
+- **Workstream:** Phase 3 integration documentation
+- **Files:** `PROJECT.md`
+- **Why:** The maintainer guide still described batch ZIP workflows as out of scope even though the batch API, artifact exports, and React batch workbench had been implemented.
+- **Resolution:** Updated the project contract to record Phase 3 as implemented and narrowed the remaining scope to operational/adoption work while preserving the explicit Figma/Adobe, cloud-hosting, authentication, billing, and enterprise-guide boundaries.
+- **Verification:** Reviewed the guide against `README.md`, `docs/api.md`, and the implemented batch routes/services; `git diff --check` passes.
+- **Prevention:** Treat `PROJECT.md`, `README.md`, and `docs/api.md` as a synchronized contract set whenever a phase changes product scope.

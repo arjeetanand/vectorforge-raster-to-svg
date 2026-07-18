@@ -72,3 +72,14 @@ class VectorizationResponse(BaseModel):
     updated_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class BatchVectorizationResponse(BaseModel):
+    id: str
+    status: Literal["queued", "processing", "completed", "partial", "failed"]
+    total_count: int = Field(ge=1)
+    completed_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    items: list[VectorizationResponse]
+    created_at: datetime
+    updated_at: datetime
