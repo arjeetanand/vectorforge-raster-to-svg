@@ -35,6 +35,16 @@ Wait until the API and worker report that they are ready, then open:
 5. Select **Vectorize image** after uploading or changing settings, then wait for the status timeline to complete.
 6. Download the generated SVG or comparison PNG.
 
+### Read the quality report
+
+Completed jobs include a **Conversion quality** panel. It shows the SVG path and
+colour-layer counts, components removed as noise, foreground coverage, SVG
+complexity, preview-similarity indicator, model/fallback used, and any warnings.
+This is an explainable output-health check—not a claim that a heuristic or
+pretrained model is perfectly accurate. A **Review recommended** or
+**Unsupported input** result means inspect the SVG before using it in production.
+See [quality-report documentation](docs/quality.md) for the exact fields.
+
 ### Automatic recommendation
 
 The workbench performs a small, local browser-side analysis; it does not upload the image or call an LLM to choose a mode. It distinguishes meaningful artwork colour families from a dominant white background, so a sparse multi-colour logo starts in **Illustration** while a one-ink signature starts in **Line art**. You can always override the choice before vectorizing.
@@ -124,6 +134,7 @@ Do not use `npm install` as a substitute for `npm ci` when repairing this projec
 - Not supported: spreadsheets, screenshots of documents, photographs, or dense text. If no eligible artwork contours are found, the job fails instead of producing an empty SVG.
 - Output is editable filled SVG paths. It does not infer semantic layers or stroke centerlines.
 - A classical OpenCV mask is always available. Optional PyTorch segmentation requires an explicitly downloaded model; no weights are committed.
+- The quality report warns about photo-like, document-like, screenshot-like, or dense-text-like inputs when detectable, but it does not convert VectorForge into an OCR or photo-vectorization tool.
 
 ## Development quality gates
 

@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 
 from app.core.config import get_settings
+from app.ml.manifest import DEEPLABV3_MOBILENET_V3_LARGE
 from app.ml.segmentation import select_configured_segmentation_model
 
 from .image import decode_image
@@ -29,6 +30,13 @@ class VectorizationOutput:
     preview_path: Path
     comparison_path: Path
     model_used: str
+    quality: dict[str, Any]
+
+    @property
+    def quality_report(self) -> dict[str, Any]:
+        """Compatibility alias for callers using the descriptive old name."""
+
+        return self.quality
 
 
 def vectorize_image(
@@ -80,7 +88,17 @@ def vectorize_image(
         model_used = (
             f"opencv-fallback:{selection.fallback_reason or 'model-inference-failed'}"
         )
-    return VectorizationOutput(svg_path, preview_path, comparison_path, model_used)
+    quality = dict(result.quality)
+    quality["model_used"] = model_used
+    quality["model_metadata"] = _model_metadata(
+        requested=use_model,
+        model_used=model_used,
+        fallback_reason=selection.fallback_reason,
+        expected_sha256=settings.segmentation_model_sha256,
+    )
+    return VectorizationOutput(
+        svg_path, preview_path, comparison_path, model_used, quality
+    )
 
 
 def _options_from_mapping(options: Mapping[str, Any]) -> VectorizationOptions:
@@ -91,6 +109,51 @@ def _options_from_mapping(options: Mapping[str, Any]) -> VectorizationOptions:
         smoothing=float(options.get("smoothing", 0.45)),
         min_component_area=int(options.get("min_component_area", 24)),
     )
+
+
+def _model_metadata(
+    *,
+    requested: bool,
+    model_used: str,
+    fallback_reason: str | None,
+    expected_sha256: str | None,
+) -> dict[str, str | bool | None]:
+    """Return provenance that is safe to persist and display.
+
+    Paths and raw load exceptions are intentionally excluded. A fine-tuned
+    checkpoint can override the public checkpoint digest through settings, but
+    remains clearly identified as operator-configured rather than silently
+    presented as the TorchVision public weight.
+    """
+
+    if model_used == "torchvision":
+        configured_digest = expected_sha256 or DEEPLABV3_MOBILENET_V3_LARGE.sha256
+        return {
+            "requested": requested,
+            "provider": "torchvision",
+            "architecture": DEEPLABV3_MOBILENET_V3_LARGE.architecture,
+            "checkpoint": DEEPLABV3_MOBILENET_V3_LARGE.name,
+            "checkpoint_sha256": configured_digest,
+            "fallback_reason": None,
+        }
+    if model_used.startswith("opencv-fallback:"):
+        return {
+            "requested": requested,
+            "provider": "opencv",
+            "architecture": None,
+            "checkpoint": None,
+            "checkpoint_sha256": None,
+            "fallback_reason": fallback_reason
+            or model_used.removeprefix("opencv-fallback:"),
+        }
+    return {
+        "requested": requested,
+        "provider": model_used,
+        "architecture": None,
+        "checkpoint": None,
+        "checkpoint_sha256": None,
+        "fallback_reason": None,
+    }
 
 
 def _comparison(source_rgb: np.ndarray, preview_rgb: np.ndarray) -> np.ndarray:

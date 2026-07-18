@@ -12,6 +12,7 @@ from app.ml.segmentation import (
     select_configured_segmentation_model,
 )
 from app.pipeline.vectorize import vectorize_image
+from app.pipeline.vectorize import _model_metadata
 
 
 def test_manifest_uses_a_full_torchvision_sha256_pin() -> None:
@@ -57,10 +58,33 @@ def test_requested_model_without_config_reports_worker_fallback(
         )(),
     )
     source_path = tmp_path / "source.png"
-    Image.new("RGB", (20, 20), "white").save(source_path)
+    source = Image.new("RGB", (20, 20), "white")
+    source.paste((0, 0, 0), (5, 5, 15, 15))
+    source.save(source_path)
     output = vectorize_image(
         source_path,
         tmp_path / "output",
         {"mode": "line-art", "use_segmentation_model": True},
     )
     assert output.model_used == "opencv-fallback:model-not-configured"
+    assert output.quality["model_metadata"] == {
+        "requested": True,
+        "provider": "opencv",
+        "architecture": None,
+        "checkpoint": None,
+        "checkpoint_sha256": None,
+        "fallback_reason": "model-not-configured",
+    }
+
+
+def test_torchvision_provenance_uses_the_pinned_checkpoint() -> None:
+    metadata = _model_metadata(
+        requested=True,
+        model_used="torchvision",
+        fallback_reason=None,
+        expected_sha256=None,
+    )
+    assert metadata["provider"] == "torchvision"
+    assert metadata["architecture"] == "deeplabv3_mobilenet_v3_large"
+    assert metadata["checkpoint_sha256"] == DEEPLABV3_MOBILENET_V3_LARGE.sha256
+    assert metadata["fallback_reason"] is None

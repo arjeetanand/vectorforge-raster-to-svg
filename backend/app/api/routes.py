@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import uuid
 
 from celery.exceptions import OperationalError
@@ -16,11 +17,17 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import JobStatus, Vectorization
-from app.schemas import ArtifactUrls, VectorizationOptions, VectorizationResponse
+from app.schemas import (
+    ArtifactUrls,
+    QualityReport,
+    VectorizationOptions,
+    VectorizationResponse,
+)
 from app.services.storage import artifact_path, persist_upload
 from app.tasks import queue_vectorization
 
@@ -49,6 +56,7 @@ def _response(request: Request, job: Vectorization) -> VectorizationResponse:
         source_width=job.source_width,
         source_height=job.source_height,
         model_used=job.model_used,
+        quality=_quality(job),
         error_code=job.error_code,
         error_detail=job.error_detail,
         artifacts=_urls(request, job),
@@ -56,6 +64,41 @@ def _response(request: Request, job: Vectorization) -> VectorizationResponse:
         updated_at=job.updated_at,
         started_at=job.started_at,
         completed_at=job.completed_at,
+    )
+
+
+def _quality(job: Vectorization) -> QualityReport | None:
+    """Avoid breaking existing jobs if a pre-migration diagnostics value is malformed."""
+
+    if not job.diagnostics:
+        return None
+    try:
+        return QualityReport.model_validate(job.diagnostics)
+    except ValueError:
+        return None
+
+
+def _same_idempotent_request(
+    job: Vectorization, source_sha256: str, options: VectorizationOptions
+) -> bool:
+    return job.source_sha256 == source_sha256 and job.options == options.model_dump(
+        mode="json"
+    )
+
+
+def _discard_staged_upload(artifact_dir: str) -> None:
+    """Remove a duplicate request's private staging directory before returning."""
+
+    shutil.rmtree(artifact_dir, ignore_errors=True)
+
+
+def _idempotency_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "This Idempotency-Key was already used for a different source image "
+            "or vectorization settings."
+        ),
     )
 
 
@@ -85,6 +128,17 @@ async def create_vectorization(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if idempotency_key is not None and not idempotency_key.strip():
+        raise HTTPException(
+            status_code=422, detail="Idempotency-Key must not be blank."
+        )
+    if idempotency_key is not None and len(idempotency_key) > 255:
+        raise HTTPException(
+            status_code=422, detail="Idempotency-Key must be 255 characters or fewer."
+        )
+
+    job_id = str(uuid.uuid4())
+    stored = await persist_upload(image, job_id)
     if idempotency_key:
         existing = db.scalar(
             select(Vectorization).where(
@@ -92,10 +146,11 @@ async def create_vectorization(
             )
         )
         if existing:
-            return _response(request, existing)
+            _discard_staged_upload(stored["artifact_dir"])
+            if _same_idempotent_request(existing, stored["sha256"], options):
+                return _response(request, existing)
+            raise _idempotency_conflict()
 
-    job_id = str(uuid.uuid4())
-    stored = await persist_upload(image, job_id)
     job = Vectorization(
         id=job_id,
         status=JobStatus.QUEUED,
@@ -109,7 +164,28 @@ async def create_vectorization(
         source_height=stored["height"],
     )
     db.add(job)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # A parallel request may have claimed this key after our lookup. The
+        # database index is the final authority; reconcile against its job
+        # instead of queueing duplicate work.
+        db.rollback()
+        _discard_staged_upload(stored["artifact_dir"])
+        if idempotency_key:
+            existing = db.scalar(
+                select(Vectorization).where(
+                    Vectorization.idempotency_key == idempotency_key
+                )
+            )
+            if existing and _same_idempotent_request(
+                existing, stored["sha256"], options
+            ):
+                return _response(request, existing)
+            raise _idempotency_conflict() from exc
+        raise HTTPException(
+            status_code=500, detail="Vectorization job could not be created."
+        ) from exc
     db.refresh(job)
     try:
         queue_vectorization.delay(job.id)
