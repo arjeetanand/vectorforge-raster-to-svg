@@ -9,6 +9,8 @@ export interface WorkbenchState {
   submitting: boolean
   error: string | null
   recommendation: VectorizationRecommendation | null
+  recommendationPending: boolean
+  recommendationUnavailable: boolean
   revectorizeRequired: boolean
   pollRetryAttempt: number
 }
@@ -29,6 +31,8 @@ export const initialState: WorkbenchState = {
   submitting: false,
   error: null,
   recommendation: null,
+  recommendationPending: false,
+  recommendationUnavailable: false,
   revectorizeRequired: false,
   pollRetryAttempt: 0,
 }
@@ -36,6 +40,7 @@ export const initialState: WorkbenchState = {
 export type WorkbenchAction =
   | { type: 'file-selected'; file: File; sourceUrl: string }
   | { type: 'recommendation-ready'; file: File; sourceUrl: string; recommendation: VectorizationRecommendation }
+  | { type: 'recommendation-unavailable'; file: File; sourceUrl: string }
   | { type: 'options-updated'; options: Partial<VectorizationOptions> }
   | { type: 'submit-started' }
   | { type: 'job-updated'; job: VectorizationJob }
@@ -47,12 +52,17 @@ export type WorkbenchAction =
 export function workbenchReducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState {
   switch (action.type) {
     case 'file-selected':
-      return { ...state, file: action.file, sourceUrl: action.sourceUrl, recommendation: null, job: null, error: null, revectorizeRequired: false, pollRetryAttempt: 0 }
+      // Never let a new upload inherit visible settings from the prior image
+      // while its recommendation is still being calculated.
+      return { ...state, file: action.file, sourceUrl: action.sourceUrl, options: { ...defaultOptions }, recommendation: null, recommendationPending: true, recommendationUnavailable: false, job: null, error: null, revectorizeRequired: false, pollRetryAttempt: 0 }
     case 'recommendation-ready':
       // Image analysis is asynchronous. Ignore a result for an image that the
       // user has already replaced, so it cannot restore stale settings/results.
       if (state.file !== action.file || state.sourceUrl !== action.sourceUrl) return state
-      return { ...state, options: action.recommendation.options, recommendation: action.recommendation }
+      return { ...state, options: action.recommendation.options, recommendation: action.recommendation, recommendationPending: false, recommendationUnavailable: false }
+    case 'recommendation-unavailable':
+      if (state.file !== action.file || state.sourceUrl !== action.sourceUrl) return state
+      return { ...state, recommendationPending: false, recommendationUnavailable: true }
     case 'options-updated': {
       const options = { ...state.options, ...action.options }
       const unchanged = options.mode === state.options.mode
@@ -63,7 +73,7 @@ export function workbenchReducer(state: WorkbenchState, action: WorkbenchAction)
       if (unchanged) return state
       // Options are part of the server job payload. Never leave a completed
       // result or download visible once the user has changed that payload.
-      return { ...state, options, recommendation: null, job: null, error: null, revectorizeRequired: Boolean(state.job) }
+      return { ...state, options, recommendation: null, recommendationUnavailable: false, job: null, error: null, revectorizeRequired: Boolean(state.job) }
     }
     case 'submit-started':
       return { ...state, submitting: true, job: null, error: null, revectorizeRequired: false, pollRetryAttempt: 0 }

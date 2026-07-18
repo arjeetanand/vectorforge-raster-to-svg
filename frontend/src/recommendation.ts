@@ -3,6 +3,7 @@ import type { VectorizationMode, VectorizationOptions } from './api'
 export interface ImageMetrics {
   colorDiversity: number
   colorFamilyCount: number
+  prominentArtworkColorCount: number
   coloredPixelRatio: number
   saturatedPixelRatio: number
   inkCoverage: number
@@ -26,8 +27,8 @@ export function recommendFromMetrics(metrics: ImageMetrics): VectorizationRecomm
   // A mostly white image can still be a multi-colour logo. Count meaningful
   // hue families separately so a red-and-blue logo is not mistaken for a blue
   // signature merely because its background dominates the pixels.
-  const hasMultipleColorFamilies = metrics.colorFamilyCount >= 2
-  const mostlySingleInk = !hasMultipleColorFamilies && metrics.inkCoverage < 0.3
+  const hasMultipleArtworkColours = metrics.colorFamilyCount >= 2 || metrics.prominentArtworkColorCount >= 2
+  const mostlySingleInk = !hasMultipleArtworkColours && metrics.inkCoverage < 0.3
   const useLineArt = mostlyWhiteBackground && mostlySingleInk
 
   if (useLineArt) {
@@ -88,6 +89,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 function measurePixels(data: Uint8ClampedArray): ImageMetrics {
   const colors = new Set<string>()
   const colorFamilySamples = new Map<number, number>()
+  const artworkColorSamples = new Map<string, number>()
   let saturated = 0
   let colored = 0
   let ink = 0
@@ -109,6 +111,13 @@ function measurePixels(data: Uint8ClampedArray): ImageMetrics {
       const family = hueFamily(red, green, blue, maximum, minimum)
       colorFamilySamples.set(family, (colorFamilySamples.get(family) ?? 0) + 1)
     }
+    // Keep a second, coarser palette count. Two filled colours may share a
+    // hue family (for example yellow plus a brown outline), but are still an
+    // Illustration rather than single-ink line art.
+    if (chroma > 35 || brightness < 120) {
+      const bucket = `${Math.floor(red / 64)}-${Math.floor(green / 64)}-${Math.floor(blue / 64)}`
+      artworkColorSamples.set(bucket, (artworkColorSamples.get(bucket) ?? 0) + 1)
+    }
     if (brightness < 205 || chroma > 35) ink += 1
     colors.add(`${Math.floor(red / 48)}-${Math.floor(green / 48)}-${Math.floor(blue / 48)}`)
     samples += 1
@@ -118,6 +127,8 @@ function measurePixels(data: Uint8ClampedArray): ImageMetrics {
     // Ignore anti-aliasing and JPEG noise. A hue needs to cover at least 0.2%
     // of samples to count as an artwork colour family.
     colorFamilyCount: [...colorFamilySamples.values()].filter((count) => count / samples >= 0.002).length,
+    // Core fill colours are substantially larger than anti-aliased edges.
+    prominentArtworkColorCount: [...artworkColorSamples.values()].filter((count) => count / samples >= 0.008).length,
     coloredPixelRatio: colored / samples,
     saturatedPixelRatio: saturated / samples,
     inkCoverage: ink / samples,

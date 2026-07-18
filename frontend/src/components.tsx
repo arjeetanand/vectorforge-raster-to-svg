@@ -44,7 +44,12 @@ export function UploadDropzone({ file, onFile, onError, disabled }: UploadDropzo
     }
     onFile(candidate)
   }
-  const onChange = (event: ChangeEvent<HTMLInputElement>) => choose(event.currentTarget.files?.[0])
+  const onChange = (event: ChangeEvent<HTMLInputElement>) => {
+    choose(event.currentTarget.files?.[0])
+    // Let a user choose the same local file again after replacing it or after
+    // a failed recommendation; browsers otherwise suppress a second change.
+    event.currentTarget.value = ''
+  }
   const onDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault()
     choose(event.dataTransfer.files[0])
