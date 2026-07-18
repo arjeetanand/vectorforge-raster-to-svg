@@ -1,0 +1,12 @@
+celery[redis]==5.4.0
+fastapi==0.115.6
+numpy==2.2.1
+opencv-python-headless==4.10.0.84
+Pillow==11.0.0
+psycopg[binary]==3.2.3
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+SQLAlchemy==2.0.36
+torch==2.5.1
+torchvision==0.20.1
+uvicorn[standard]==0.32.1
