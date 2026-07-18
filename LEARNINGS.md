@@ -740,3 +740,12 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Used the installed `uv` package tool and approved cache/network access to create `.venv` and install the declared pinned dependencies. The environment remains ignored by Git.
 - **Verification:** Imports succeeded and the backend suite passed 25 tests.
 - **Prevention:** Use `uv pip` or bootstrap `pip` explicitly for fresh lightweight environments; request only the scoped permission needed for dependency installation.
+
+## 2026-07-18 — Error E-045 — local API health could not be inspected in the current environment
+
+- **Workstream:** Lead / user-reported 500 diagnosis
+- **Context:** Checked `http://localhost:8000/healthz` and `/readyz` while investigating the UI’s repeated `Request failed (500)` message.
+- **Cause:** No API process was reachable in this environment, and the Docker CLI was unavailable, so container logs could not be collected here.
+- **Resolution:** Did not invent a backend root cause. The user should run the documented Compose log/health commands to distinguish API, database, Redis, or worker failure.
+- **Verification:** Source-level checks and 25 backend tests pass; the failure remains environment/runtime-specific until the user supplies the API/worker log line.
+- **Prevention:** Keep `/healthz`, `/readyz`, and `docker compose logs api worker postgres redis --tail=100` as the first production troubleshooting checks.
