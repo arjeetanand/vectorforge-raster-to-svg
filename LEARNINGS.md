@@ -532,3 +532,49 @@ This append-only log records every material implementation, configuration, test,
 - **Resolution:** Added a prominent-artwork-palette count based on coarse RGB buckets and coverage. Two substantial fills now select Illustration even when their hue family is the same.
 - **Verification:** Added a dedicated same-hue multi-fill recommendation test. Frontend lint, 14 tests, production build, diff validation, and rendered browser smoke checks passed with no console errors.
 - **Prevention:** Combine hue-family analysis with palette separation and area coverage; hue alone cannot distinguish related fill colours from a single-ink mark.
+
+## 2026-07-18 — Change — learning-log completeness audit
+
+- **Workstream:** Lead / documentation governance
+- **Files/context:** Entire `LEARNINGS.md` history, current repository changes, validation outputs, and user-reported conversion cases.
+- **Why:** Confirm that every material implementation, configuration, documentation, test, tool/environment error, and correction is recorded in one safe, reviewable place.
+- **Resolution:** Reconciled the log through errors E-001 to E-034. Entries cover backend/worker setup, CV and ML work, frontend changes, Docker/Vite issues, browser limitations, recommendation bugs, stale results, retry recovery, empty SVG prevention, samples, and all associated corrections.
+- **Verification:** The log entries include cause, resolution, verification, and prevention for each recorded error, without credentials, raw user uploads, or unredacted traces. Current frontend validation remains green: lint, 14 tests, production build, and diff validation.
+- **Takeaway:** Update this append-only log in the same turn as every meaningful change or real error; do not defer error documentation until later.
+
+## 2026-07-18 — Change — resolved user-visible issues index
+
+- **Workstream:** Lead / documentation governance
+- **Files/context:** User-reported application behavior and the detailed entries in this log.
+- **Why:** Numbered errors are complete but can be difficult to scan when testing the application manually.
+- **Resolution:** Added this plain-language index of every observed user-visible issue and its correction. The detailed cause, verification, and prevention remain in the referenced entries.
+- **Verification:** Each item below maps to an existing detailed learning/error entry; no unobserved problems were invented.
+- **Takeaway:** Use this index for fast troubleshooting and the numbered entries for implementation detail.
+
+### Resolved behavior checklist
+
+| What was observed | What was corrected | Detailed entries |
+| --- | --- | --- |
+| Local Vite showed a missing `dist.js` module | Rebuilt locked dependencies with `npm ci`; Docker frontend uses `npm ci` too. | E-015, Vite-install change |
+| A stale Vite process continued to show the old error overlay | Documented safe restart/hard-refresh procedure; verified clean rendering after restart. | E-016, E-017 |
+| A new upload could retain an older recommendation/result | New upload immediately clears job/downloads; stale async recommendations are identity-ignored. | E-018 |
+| Choosing the same local file again did not always trigger analysis | Native file input resets after selection. | E-033 |
+| The second upload briefly displayed the first upload's settings | New upload resets to defaults, visibly analyzes, and blocks conversion until its own recommendation is ready. | E-033 |
+| A sparse multi-colour logo on white was selected as Line art | The recommender now counts meaningful artwork colour families rather than background-dominated diversity. | multi-colour-logo change |
+| Yellow fill plus brown outline was selected as Line art | The recommender now counts distinct prominent palette colours even inside one hue family. | E-034 |
+| Changing settings left an earlier SVG visible/downloadable | Settings changes clear previous preview/downloads and require a new vectorization. | multi-colour-logo change |
+| Retry after a polling/network failure did nothing | Retry now resumes polling the original job instead of attempting a blocked duplicate submission. | E-025 |
+| Vector pane showed a raster preview while Download SVG was empty | The pane now uses the actual SVG URL and zero-path jobs fail without an SVG download. | E-028 |
+| Spreadsheet/document screenshot could appear completed as an empty SVG | No-path jobs now fail clearly; README states documents and dense text are unsupported. | E-028, document-limitation change |
+| Users lacked reliable inputs to test normal and failure flows | Added attributable sample images and a complete expected-results test matrix. | comprehensive-sample-pack change |
+| Docker/host verification had environment-specific blockers | Documented Docker absence, Python/cache constraints, browser file-input limitations, port restrictions, and approved workarounds. | E-001 to E-004, E-019, E-024, E-026, E-029 to E-032 |
+| Redis exits with code 0 after `docker compose down` | This is a normal clean shutdown, not an application failure; container logs should be checked only if it exits while Compose remains running. | Observation O-001 below |
+
+## 2026-07-18 — Observation O-001 — Redis exit code 0 after Compose shutdown
+
+- **Workstream:** Lead / Docker troubleshooting
+- **Context:** User observed the Redis service report `exited with code 0` after stopping the Compose stack.
+- **Cause:** Docker sends a normal termination signal during `docker compose down`; Redis exits cleanly with status 0.
+- **Resolution:** No code change is needed. Treat it as an error only when Redis exits while `docker compose up` is expected to keep services running.
+- **Verification:** Exit status 0 conventionally indicates successful process termination, unlike a nonzero crash status.
+- **Prevention:** Check `docker compose ps` and service logs while the stack is running before diagnosing a clean teardown as a failure.
