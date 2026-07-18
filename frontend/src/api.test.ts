@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createVectorization, type VectorizationOptions } from './api'
+import { createVectorization, createVectorizationBatch, getVectorizationPresets, type VectorizationOptions } from './api'
 
 const options: VectorizationOptions = {
   mode: 'illustration',
@@ -49,5 +49,50 @@ describe('createVectorization', () => {
       svgComplexity: { level: 'low' },
       modelMetadata: { provider: 'opencv', modelId: 'torchvision.deeplabv3-mobilenet-v3-large', version: 'COCO_WITH_VOC_LABELS_V1', fallbackReason: 'model-unavailable' },
     })
+  })
+
+  it('serializes repeated images and maps per-file batch status', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 'batch-1',
+      status: 'partial',
+      total_count: 2,
+      completed_count: 1,
+      failed_count: 1,
+      created_at: '2026-07-18T00:00:00Z',
+      updated_at: '2026-07-18T00:01:00Z',
+      items: [
+        { id: 'job-1', status: 'completed', source_filename: 'icon.png', artifacts: { svg: '/api/v1/vectorizations/job-1/artifacts/svg' } },
+        { id: 'job-2', status: 'failed', source_filename: 'broken.jpg', artifacts: {}, error_detail: 'No editable shapes were detected.' },
+      ],
+    }), { status: 202, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const batch = await createVectorizationBatch(
+      [new File(['one'], 'icon.png', { type: 'image/png' }), new File(['two'], 'broken.jpg', { type: 'image/jpeg' })],
+      null,
+      options,
+      'batch-key',
+    )
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const form = request.body as FormData
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/vectorization-batches', expect.objectContaining({ headers: { 'Idempotency-Key': 'batch-key' } }))
+    expect(form.getAll('images')).toHaveLength(2)
+    expect(batch).toMatchObject({ id: 'batch-1', status: 'partial', totalCount: 2, completedCount: 1, failedCount: 1 })
+    expect(batch.items[0]).toMatchObject({ id: 'job-1', sourceFilename: 'icon.png', artifacts: { svgUrl: '/api/v1/vectorizations/job-1/artifacts/svg' } })
+    expect(batch.items[1]).toMatchObject({ id: 'job-2', status: 'failed', error: 'No editable shapes were detected.' })
+  })
+
+  it('maps server presets into inspector-friendly options', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { id: 'flat-color-logo', label: 'Flat-color logo', description: 'Solid marks', options: { mode: 'illustration', color_count: 6, smoothing: 0.25, min_component_area: 24, use_segmentation_model: false } },
+    ]), { status: 200, headers: { 'content-type': 'application/json' } })))
+
+    await expect(getVectorizationPresets()).resolves.toEqual([{
+      id: 'flat-color-logo',
+      label: 'Flat-color logo',
+      description: 'Solid marks',
+      options: { mode: 'illustration', colorCount: 6, smoothing: 25, minimumComponentArea: 24, useSegmentation: false },
+    }])
   })
 })

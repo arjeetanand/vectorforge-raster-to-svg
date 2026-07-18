@@ -10,7 +10,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`
 }
 
-export function Header({ onReset, canReset }: { onReset: () => void; canReset: boolean }) {
+export function Header({ onReset, canReset, batchMode, onToggleBatch }: { onReset: () => void; canReset: boolean; batchMode?: boolean; onToggleBatch?: () => void }) {
   return (
     <header className="app-header">
       <a className="brand" href="#workbench" aria-label="VectorForge home">
@@ -18,6 +18,7 @@ export function Header({ onReset, canReset }: { onReset: () => void; canReset: b
         <span>VectorForge</span>
       </a>
       <p className="header-note">Raster → editable vector</p>
+      {onToggleBatch ? <button className="mode-button" type="button" onClick={onToggleBatch}>{batchMode ? 'Single image' : 'Batch convert'}</button> : null}
       <button className="text-button" type="button" disabled={!canReset} onClick={onReset}>Start over</button>
     </header>
   )

@@ -4,7 +4,17 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Index, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -37,6 +47,10 @@ class Vectorization(Base):
     idempotency_key: Mapped[str | None] = mapped_column(
         String(255), nullable=True, index=True
     )
+    batch_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("vectorization_batches.id"), nullable=True, index=True
+    )
+    batch_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     options: Mapped[dict] = mapped_column(JSON)
     artifact_dir: Mapped[str] = mapped_column(String(512))
     source_width: Mapped[int] = mapped_column(Integer)
@@ -58,4 +72,29 @@ class Vectorization(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class VectorizationBatch(Base):
+    __tablename__ = "vectorization_batches"
+    __table_args__ = (
+        Index(
+            "uq_vectorization_batches_idempotency_key", "idempotency_key", unique=True
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    source_fingerprint: Mapped[str] = mapped_column(String(64))
+    total_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

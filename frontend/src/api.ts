@@ -1,5 +1,6 @@
 export type VectorizationMode = 'line-art' | 'illustration'
 export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed'
+export type BatchStatus = JobStatus | 'partial'
 
 export interface VectorizationOptions {
   mode: VectorizationMode
@@ -51,6 +52,7 @@ export interface VectorizationJob {
   status: JobStatus
   createdAt?: string
   updatedAt?: string
+  sourceFilename?: string
   options?: Partial<VectorizationOptions>
   artifacts: VectorizationArtifacts
   modelUsed?: string
@@ -58,9 +60,31 @@ export interface VectorizationJob {
   quality?: QualityReport
 }
 
+export interface VectorizationBatch {
+  id: string
+  status: BatchStatus
+  totalCount: number
+  completedCount: number
+  failedCount: number
+  items: VectorizationJob[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface VectorizationPreset {
+  id: string
+  label: string
+  description: string
+  options: VectorizationOptions
+}
+
 /** Prefer the editable SVG so the workbench shows the exact download artifact. */
 export function vectorPreviewUrl(job?: VectorizationJob | null): string | undefined {
   return job?.artifacts.svgUrl ?? job?.artifacts.previewUrl
+}
+
+export function vectorizationBatchArtifactUrl(id: string, artifact: 'results.zip' | 'report.csv' | 'report.json'): string {
+  return apiPath(`/vectorization-batches/${encodeURIComponent(id)}/artifacts/${artifact}`)
 }
 
 interface ApiJob {
@@ -68,6 +92,7 @@ interface ApiJob {
   status: JobStatus
   created_at?: string
   updated_at?: string
+  source_filename?: string
   options?: Partial<Record<'mode' | 'color_count' | 'smoothing' | 'min_component_area' | 'use_segmentation_model', string | number | boolean>>
   artifacts?: Partial<Record<'original' | 'svg' | 'preview' | 'comparison', string>>
   model_used?: string
@@ -113,6 +138,7 @@ function mapJob(job: ApiJob): VectorizationJob {
     status: job.status,
     createdAt: job.created_at,
     updatedAt: job.updated_at,
+    sourceFilename: job.source_filename,
     options: options
       ? {
           mode: options.mode as VectorizationMode | undefined,
@@ -163,6 +189,43 @@ function mapJob(job: ApiJob): VectorizationJob {
   }
 }
 
+interface ApiBatch {
+  id: string
+  status: BatchStatus
+  total_count: number
+  completed_count: number
+  failed_count: number
+  items: ApiJob[]
+  created_at?: string
+  updated_at?: string
+}
+
+interface ApiPreset {
+  id: string
+  label: string
+  description: string
+  options: {
+    mode: VectorizationMode
+    color_count: number
+    smoothing: number
+    min_component_area: number
+    use_segmentation_model: boolean
+  }
+}
+
+function mapBatch(batch: ApiBatch): VectorizationBatch {
+  return {
+    id: batch.id,
+    status: batch.status,
+    totalCount: batch.total_count,
+    completedCount: batch.completed_count,
+    failedCount: batch.failed_count,
+    items: batch.items.map(mapJob),
+    createdAt: batch.created_at,
+    updatedAt: batch.updated_at,
+  }
+}
+
 async function parseError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: string }
@@ -194,4 +257,62 @@ export async function getVectorization(id: string, signal?: AbortSignal): Promis
   const response = await fetch(apiPath(`/vectorizations/${encodeURIComponent(id)}`), { signal })
   if (!response.ok) throw new Error(await parseError(response))
   return mapJob((await response.json()) as ApiJob)
+}
+
+export async function createVectorizationBatch(
+  images: File[],
+  archive: File | null,
+  options: VectorizationOptions,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<VectorizationBatch> {
+  const body = new FormData()
+  if (archive) body.append('archive', archive)
+  else images.forEach((image) => body.append('images', image))
+  body.append('mode', options.mode)
+  body.append('color_count', String(options.colorCount))
+  body.append('smoothing', String(options.smoothing / 100))
+  body.append('min_component_area', String(options.minimumComponentArea))
+  body.append('use_segmentation_model', String(options.useSegmentation))
+  const response = await fetch(apiPath('/vectorization-batches'), {
+    method: 'POST',
+    body,
+    signal,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  })
+  if (!response.ok) throw new Error(await parseError(response))
+  return mapBatch((await response.json()) as ApiBatch)
+}
+
+export async function getVectorizationBatch(id: string, signal?: AbortSignal): Promise<VectorizationBatch> {
+  const response = await fetch(apiPath(`/vectorization-batches/${encodeURIComponent(id)}`), { signal })
+  if (!response.ok) throw new Error(await parseError(response))
+  return mapBatch((await response.json()) as ApiBatch)
+}
+
+export async function retryFailedBatch(id: string, signal?: AbortSignal): Promise<VectorizationBatch> {
+  const response = await fetch(apiPath(`/vectorization-batches/${encodeURIComponent(id)}/retry-failed`), {
+    method: 'POST',
+    signal,
+  })
+  if (!response.ok) throw new Error(await parseError(response))
+  return mapBatch((await response.json()) as ApiBatch)
+}
+
+export async function getVectorizationPresets(signal?: AbortSignal): Promise<VectorizationPreset[]> {
+  const response = await fetch(apiPath('/presets'), { signal })
+  if (!response.ok) throw new Error(await parseError(response))
+  const presets = (await response.json()) as ApiPreset[]
+  return presets.map((preset) => ({
+    id: preset.id,
+    label: preset.label,
+    description: preset.description,
+    options: {
+      mode: preset.options.mode,
+      colorCount: preset.options.color_count,
+      smoothing: preset.options.smoothing * 100,
+      minimumComponentArea: preset.options.min_component_area,
+      useSegmentation: preset.options.use_segmentation_model,
+    },
+  }))
 }

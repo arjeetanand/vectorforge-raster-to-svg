@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -209,3 +211,63 @@ def test_worker_ignores_nonqueued_jobs(
     }
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+def test_batch_multipart_creates_independent_jobs_and_replays(api_client, monkeypatch):
+    client, queued_job_ids, artifact_root = api_client
+
+    def persist_bytes(raw, filename, job_id, settings=None):
+        path = artifact_root / job_id
+        path.mkdir()
+        (path / "source.png").write_bytes(raw)
+        return {
+            "artifact_dir": str(path),
+            "filename": filename,
+            "mime_type": "image/png",
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "width": 4,
+            "height": 4,
+        }
+
+    monkeypatch.setattr(routes, "persist_upload_bytes", persist_bytes)
+    files = [
+        ("images", ("one.png", b"one", "image/png")),
+        ("images", ("two.png", b"two", "image/png")),
+    ]
+    first = client.post(
+        "/api/v1/vectorization-batches",
+        headers={"Idempotency-Key": "batch-key"},
+        data={"mode": "line-art"},
+        files=files,
+    )
+    replay = client.post(
+        "/api/v1/vectorization-batches",
+        headers={"Idempotency-Key": "batch-key"},
+        data={"mode": "line-art"},
+        files=files,
+    )
+    assert first.status_code == 202
+    assert len(first.json()["items"]) == 2
+    assert replay.json()["id"] == first.json()["id"]
+    assert len(queued_job_ids) == 2
+
+    conflict = client.post(
+        "/api/v1/vectorization-batches",
+        headers={"Idempotency-Key": "batch-key"},
+        data={"mode": "line-art"},
+        files=[("images", ("one.png", b"different", "image/png"))],
+    )
+    assert conflict.status_code == 409
+
+
+def test_batch_zip_rejects_unsafe_paths(api_client):
+    client, _, _ = api_client
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as bundle:
+        bundle.writestr("../escape.png", b"not-an-image")
+    response = client.post(
+        "/api/v1/vectorization-batches",
+        files={"archive": ("batch.zip", stream.getvalue(), "application/zip")},
+    )
+    assert response.status_code == 422
+    assert "safe ZIP" in response.json()["detail"]
