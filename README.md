@@ -73,8 +73,10 @@ Open:
 
 VectorForge deliberately uses `5174` and `8001` by default so it does not
 silently collide with the common Vite (`5173`) and FastAPI (`8000`) ports used
-by other local projects. Copy `.env.example` to `.env` and change
-`VECTORFORGE_WEB_PORT` or `VECTORFORGE_API_PORT` when needed.
+by other local projects. Copy `.env.example` to `.env`, set a unique, strong
+`POSTGRES_PASSWORD`, and change `VECTORFORGE_WEB_PORT` or
+`VECTORFORGE_API_PORT` when needed. Host-run API commands use
+`VECTORFORGE_DATABASE_URL` from `.env`; Compose supplies the container URL.
 
 For a background start:
 

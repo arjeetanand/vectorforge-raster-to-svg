@@ -995,3 +995,12 @@ This append-only log records every material implementation, configuration, test,
 - Resolution: changed Compose defaults to isolated configurable host ports: VectorForge workbench `5174` and API `8001`; added `.env.example`; updated README URLs, API example, and proxy smoke checks.
 - Verification: the observed headers/body identify the conflicting services; source Compose maps `${VECTORFORGE_WEB_PORT:-5174}:80` and `${VECTORFORGE_API_PORT:-8001}:8000`; `git diff --check` plus frontend lint, 18 tests, and production build pass after the update.
 - Prevention: use project-specific configurable host ports and verify page identity before treating a localhost response as evidence about this application.
+
+## 2026-11-16 — Change — remove committed PostgreSQL default credential
+
+- **Workstream:** Credential cleanup / Compose configuration
+- **Files:** `.env.example`, `README.md`, `backend/app/core/config.py`, `docker-compose.yml`, `LEARNINGS.md`
+- **Why:** The committed default database password was present in application and Compose configuration history.
+- **Resolution:** Rewritten history removes the default password from URLs and the Compose password field. The application now requires `VECTORFORGE_DATABASE_URL`; Compose supplies its container URL using a required local `POSTGRES_PASSWORD`. Added the password-free host-run URL and an empty `POSTGRES_PASSWORD` entry to `.env.example`, with setup instructions.
+- **Verification:** Python source syntax, `docker compose config --quiet` with a temporary non-secret value, and `git diff --check` pass. The rewritten local branch was also checked for the old exact password strings.
+- **Prevention:** Keep database credentials in the ignored local `.env`; do not restore a committed default.

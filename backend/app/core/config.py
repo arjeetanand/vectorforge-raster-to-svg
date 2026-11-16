@@ -16,9 +16,7 @@ class Settings(BaseSettings):
 
     app_name: str = "VectorForge"
     environment: str = "development"
-    database_url: str = (
-        "postgresql+psycopg://vectorforge:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/vectorforge"
-    )
+    database_url: str
     redis_url: str = "redis://redis:6379/0"
     artifact_root: Path = Field(default=Path("/app/data/vectorizations"))
     max_upload_bytes: int = 10 * 1024 * 1024
